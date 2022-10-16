@@ -4,20 +4,20 @@ import (
 	"regexp"
 )
 
-type RegexTraPper struct {
+type Regextra struct {
 	*regexp.Regexp
 }
 
 // returns value for given regex captureGroupName (subexpression) if found
 //  - match -> "{matchedValue}", true
 //  - no match -> "", false
-func (rtp RegexTraPper) SubexpValue(target, cgName string) (string, bool) {
-	cgIndex := rtp.SubexpIndex(cgName)
+func (rex Regextra) SubexpValue(target, cgName string) (string, bool) {
+	cgIndex := rex.SubexpIndex(cgName)
 	if cgIndex == -1 {
 		return "", false
 	}
 
-	matches := rtp.FindStringSubmatch(target)
+	matches := rex.FindStringSubmatch(target)
 	if matches == nil {
 		return "", false
 	}
@@ -26,17 +26,17 @@ func (rtp RegexTraPper) SubexpValue(target, cgName string) (string, bool) {
 }
 
 // returns map of all regex captureGroupNames (subexpressions) and their values
-func (rtp RegexTraPper) SubexpMap(target string) map[string]string {
+func (rex Regextra) SubexpMap(target string) map[string]string {
 	cgMap := map[string]string{}
 
-	matches := rtp.FindStringSubmatch(target)
+	matches := rex.FindStringSubmatch(target)
 	if matches == nil {
 		return cgMap
 	}
 
-	for i, name := range rtp.SubexpNames() {
+	for i, name := range rex.SubexpNames() {
 		if i != 0 && name != "" {
-			value, ok := rtp.SubexpValue(target, name)
+			value, ok := rex.SubexpValue(target, name)
 			if ok {
 				cgMap[name] = value
 			}
