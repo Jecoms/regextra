@@ -16,8 +16,8 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 		Regexp *regexp.Regexp
 	}
 	type args struct {
-		target     string
-		subexpName string
+		target string
+		cgName string
 	}
 	tests := []struct {
 		name      string
@@ -32,8 +32,8 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 				Regexp: testPattern,
 			},
 			args: args{
-				target:     testTarget,
-				subexpName: "first",
+				target: testTarget,
+				cgName: "first",
 			},
 			want:      "one",
 			wantFound: true,
@@ -44,8 +44,8 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 				Regexp: testPattern,
 			},
 			args: args{
-				target:     testTarget,
-				subexpName: "second",
+				target: testTarget,
+				cgName: "second",
 			},
 			want:      "two",
 			wantFound: true,
@@ -56,8 +56,8 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 				Regexp: testPattern,
 			},
 			args: args{
-				target:     testTarget,
-				subexpName: "third",
+				target: testTarget,
+				cgName: "third",
 			},
 			want:      "",
 			wantFound: false,
@@ -68,8 +68,8 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 				Regexp: regexp.MustCompile(`(?P<price>\$\d+(,\d{3})*(\.\d{1,2})?)`),
 			},
 			args: args{
-				target:     "The price is $1,234.56",
-				subexpName: "price",
+				target: "The price is $1,234.56",
+				cgName: "price",
 			},
 			want:      "$1,234.56",
 			wantFound: true,
@@ -77,10 +77,10 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rtp := RegexTraPper{
+			rtp := Regextra{
 				Regexp: tt.fields.Regexp,
 			}
-			got, found := rtp.SubexpValue(tt.args.target, tt.args.subexpName)
+			got, found := rtp.SubexpValue(tt.args.target, tt.args.cgName)
 			if got != tt.want {
 				t.Errorf("RegexTraPper.SubexpValue() got = %v, want %v", got, tt.want)
 			}
@@ -130,10 +130,10 @@ func TestRegexTraPper_SubexpMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rtp := RegexTraPper{
+			rex := Regextra{
 				Regexp: tt.fields.Regexp,
 			}
-			if got := rtp.SubexpMap(tt.args.target); !reflect.DeepEqual(got, tt.want) {
+			if got := rex.SubexpMap(tt.args.target); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RegexTraPper.SubexpMap() = %v, want %v", got, tt.want)
 			}
 		})
