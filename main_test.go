@@ -1,6 +1,7 @@
 package regextra
 
 import (
+	"reflect"
 	"regexp"
 	"testing"
 )
@@ -85,6 +86,55 @@ func TestRegexTraPper_SubexpValue(t *testing.T) {
 			}
 			if found != tt.wantFound {
 				t.Errorf("RegexTraPper.SubexpValue() found = %v, wantFound %v", found, tt.wantFound)
+			}
+		})
+	}
+}
+
+func TestRegexTraPper_SubexpMap(t *testing.T) {
+	type fields struct {
+		Regexp *regexp.Regexp
+	}
+	type args struct {
+		target string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   map[string]string
+	}{
+		{
+			name: "found group names with values",
+			fields: fields{
+				Regexp: testPattern,
+			},
+			args: args{
+				target: testTarget,
+			},
+			want: map[string]string{
+				"first":  "one",
+				"second": "two",
+			},
+		},
+		{
+			name: "found none",
+			fields: fields{
+				Regexp: testPattern,
+			},
+			args: args{
+				target: "one two three",
+			},
+			want: map[string]string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rtp := RegexTraPper{
+				Regexp: tt.fields.Regexp,
+			}
+			if got := rtp.SubexpMap(tt.args.target); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("RegexTraPper.SubexpMap() = %v, want %v", got, tt.want)
 			}
 		})
 	}
