@@ -1,2 +1,2 @@
 # regextra
-Fluent API like regex library
+Extention of regexp functions
