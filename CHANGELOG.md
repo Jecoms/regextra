@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-10-04
+
+### Added
+- `AllNamedGroups` function to extract all values for each named capture group as `map[string][]string`
+- Handles patterns with duplicate group names, collecting all matches for each group name
+- Comprehensive test coverage for `AllNamedGroups` including duplicate group name scenarios
+- Example test for `AllNamedGroups` for pkg.go.dev documentation
+
 ## [0.2.0] - 2025-10-04
 
 ### Changed

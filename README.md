@@ -35,9 +35,14 @@ func main() {
         fmt.Println("Name:", name) // Output: Name: Alice
     }
     
-    // Get all named groups as a map
+    // Get all named groups from first match as a map
     groups := regextra.NamedGroups(re, "Alice 30")
     fmt.Println(groups) // Output: map[age:30 name:Alice]
+    
+    // Get all values for duplicate group names
+    re2 := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
+    allGroups := regextra.AllNamedGroups(re2, "hello world")
+    fmt.Println(allGroups) // Output: map[word:[hello world]]
 }
 ```
 
@@ -57,7 +62,7 @@ price, ok := regextra.FindNamed(re, "Total: $19.99", "price")
 
 ### `NamedGroups(re *regexp.Regexp, target string) map[string]string`
 
-Extract all named capture groups as a map.
+Extract all named capture groups from the first match as a map.
 
 Returns an empty map if no match is found.
 
@@ -65,6 +70,18 @@ Returns an empty map if no match is found.
 re := regexp.MustCompile(`(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})`)
 groups := regextra.NamedGroups(re, "Date: 2025-10-04")
 // groups = map[string]string{"year": "2025", "month": "10", "day": "04"}
+```
+
+### `AllNamedGroups(re *regexp.Regexp, target string) map[string][]string`
+
+Extract all values for each named capture group, handling duplicate group names within a single match.
+
+Returns an empty map if no match is found.
+
+```go
+re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
+allGroups := regextra.AllNamedGroups(re, "one two three")
+// allGroups = map[string][]string{"word": []string{"one", "two", "three"}}
 ```
 
 ## Why regextra?
