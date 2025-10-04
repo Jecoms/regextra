@@ -130,3 +130,78 @@ func ExampleNamedGroups() {
 	}
 	// Output: year=2025 month=10 day=04
 }
+
+func TestAllNamedGroups(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		want    map[string][]string
+	}{
+		{
+			name:    "duplicate group names in same match",
+			pattern: `(?P<word>\w+) (?P<word>\w+)`,
+			target:  "hello world",
+			want: map[string][]string{
+				"word": {"hello", "world"},
+			},
+		},
+		{
+			name:    "multiple different groups",
+			pattern: `(?P<name>\w+) (?P<age>\d+)`,
+			target:  "Alice 30",
+			want: map[string][]string{
+				"name": {"Alice"},
+				"age":  {"30"},
+			},
+		},
+		{
+			name:    "three duplicate group names",
+			pattern: `(?P<item>\w+) (?P<item>\w+) (?P<item>\w+)`,
+			target:  "one two three",
+			want: map[string][]string{
+				"item": {"one", "two", "three"},
+			},
+		},
+		{
+			name:    "mixed duplicate and unique groups",
+			pattern: `(?P<word>\w+) (?P<num>\d+) (?P<word>\w+)`,
+			target:  "hello 123 world",
+			want: map[string][]string{
+				"word": {"hello", "world"},
+				"num":  {"123"},
+			},
+		},
+		{
+			name:    "no match returns empty map",
+			pattern: `(?P<digit>\d+)`,
+			target:  "abc",
+			want:    map[string][]string{},
+		},
+		{
+			name:    "single group single match",
+			pattern: `(?P<price>\$\d+\.\d{2})`,
+			target:  "Total: $19.99",
+			want: map[string][]string{
+				"price": {"$19.99"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := AllNamedGroups(re, tt.target)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("AllNamedGroups() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func ExampleAllNamedGroups() {
+	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
+	allGroups := AllNamedGroups(re, "one two three")
+
+	fmt.Printf("word: %v\n", allGroups["word"])
+	// Output: word: [one two three]
+}

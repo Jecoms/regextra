@@ -64,3 +64,29 @@ func NamedGroups(re *regexp.Regexp, target string) map[string]string {
 
 	return result
 }
+
+// AllNamedGroups returns a map where each key is a named capture group and the value
+// is a slice of all matches for that group. This handles patterns where the same
+// group name appears multiple times.
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
+//	allGroups := regextra.AllNamedGroups(re, "hello world")
+//	// allGroups = map[string][]string{"word": []string{"hello", "world"}}
+func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
+	result := make(map[string][]string)
+
+	matches := re.FindStringSubmatch(target)
+	if matches == nil {
+		return result
+	}
+
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			result[name] = append(result[name], matches[i])
+		}
+	}
+
+	return result
+}
