@@ -35,7 +35,7 @@ func main() {
         fmt.Println("Name:", name) // Output: Name: Alice
     }
     
-    // Get all named groups from first match as a map
+    // Get all named groups as a map. If a group matches multiple times, the last match value will be returned
     groups := regextra.NamedGroups(re, "Alice 30")
     fmt.Println(groups) // Output: map[age:30 name:Alice]
     
@@ -62,7 +62,7 @@ price, ok := regextra.FindNamed(re, "Total: $19.99", "price")
 
 ### `NamedGroups(re *regexp.Regexp, target string) map[string]string`
 
-Extract all named capture groups from the first match as a map.
+Extract all named capture groups as a map. If a group name appears multiple times, only the last match is returned.
 
 Returns an empty map if no match is found.
 
