@@ -205,3 +205,240 @@ func ExampleAllNamedGroups() {
 	fmt.Printf("word: %v\n", allGroups["word"])
 	// Output: word: [one two three]
 }
+
+func TestUnmarshal(t *testing.T) {
+	t.Run("basic string fields", func(t *testing.T) {
+		type Person struct {
+			Name string
+			Age  string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+		var person Person
+		err := Unmarshal(re, "Alice is 30", &person)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if person.Name != "Alice" {
+			t.Errorf("Name = %q, want %q", person.Name, "Alice")
+		}
+		if person.Age != "30" {
+			t.Errorf("Age = %q, want %q", person.Age, "30")
+		}
+	})
+
+	t.Run("int type conversion", func(t *testing.T) {
+		type Person struct {
+			Name string
+			Age  int
+		}
+		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+		var person Person
+		err := Unmarshal(re, "Bob is 25", &person)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if person.Name != "Bob" {
+			t.Errorf("Name = %q, want %q", person.Name, "Bob")
+		}
+		if person.Age != 25 {
+			t.Errorf("Age = %d, want %d", person.Age, 25)
+		}
+	})
+
+	t.Run("float type conversion", func(t *testing.T) {
+		type Product struct {
+			Name  string
+			Price float64
+		}
+		re := regexp.MustCompile(`(?P<name>\w+) costs \$(?P<price>[\d.]+)`)
+		var product Product
+		err := Unmarshal(re, "Widget costs $19.99", &product)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if product.Name != "Widget" {
+			t.Errorf("Name = %q, want %q", product.Name, "Widget")
+		}
+		if product.Price != 19.99 {
+			t.Errorf("Price = %f, want %f", product.Price, 19.99)
+		}
+	})
+
+	t.Run("struct tags for custom mapping", func(t *testing.T) {
+		type Email struct {
+			Username string `regex:"user"`
+			Domain   string `regex:"domain"`
+		}
+		re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+		var email Email
+		err := Unmarshal(re, "alice@example.com", &email)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if email.Username != "alice" {
+			t.Errorf("Username = %q, want %q", email.Username, "alice")
+		}
+		if email.Domain != "example.com" {
+			t.Errorf("Domain = %q, want %q", email.Domain, "example.com")
+		}
+	})
+
+	t.Run("case insensitive field matching", func(t *testing.T) {
+		type Data struct {
+			UserName string
+			Age      int
+		}
+		re := regexp.MustCompile(`(?P<username>\w+) (?P<age>\d+)`)
+		var data Data
+		err := Unmarshal(re, "john 42", &data)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if data.UserName != "john" {
+			t.Errorf("UserName = %q, want %q", data.UserName, "john")
+		}
+		if data.Age != 42 {
+			t.Errorf("Age = %d, want %d", data.Age, 42)
+		}
+	})
+
+	t.Run("no match returns no error", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>[a-z]+)`) // Only lowercase letters
+		var person Person
+		err := Unmarshal(re, "123", &person)
+		if err != nil {
+			t.Errorf("Unmarshal() error = %v, want nil", err)
+		}
+		if person.Name != "" {
+			t.Errorf("Name = %q, want empty string", person.Name)
+		}
+	})
+
+	t.Run("error on non-pointer", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var person Person
+		err := Unmarshal(re, "Alice", person) // Not a pointer
+		if err == nil {
+			t.Error("Unmarshal() expected error for non-pointer, got nil")
+		}
+	})
+
+	t.Run("error on nil pointer", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var person *Person
+		err := Unmarshal(re, "Alice", person) // Nil pointer
+		if err == nil {
+			t.Error("Unmarshal() expected error for nil pointer, got nil")
+		}
+	})
+
+	t.Run("error on pointer to non-struct", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var name string
+		err := Unmarshal(re, "Alice", &name) // Pointer to string, not struct
+		if err == nil {
+			t.Error("Unmarshal() expected error for pointer to non-struct, got nil")
+		}
+	})
+
+	t.Run("bool type conversion", func(t *testing.T) {
+		type Config struct {
+			Enabled string
+			Debug   bool
+		}
+		re := regexp.MustCompile(`enabled=(?P<enabled>\w+) debug=(?P<debug>\w+)`)
+		var config Config
+		err := Unmarshal(re, "enabled=yes debug=true", &config)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if config.Enabled != "yes" {
+			t.Errorf("Enabled = %q, want %q", config.Enabled, "yes")
+		}
+		if config.Debug != true {
+			t.Errorf("Debug = %v, want %v", config.Debug, true)
+		}
+	})
+
+	t.Run("skip unexported fields", func(t *testing.T) {
+		type Data struct {
+			Public  string
+			private string
+		}
+		re := regexp.MustCompile(`(?P<public>\w+) (?P<private>\w+)`)
+		var data Data
+		err := Unmarshal(re, "hello world", &data)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if data.Public != "hello" {
+			t.Errorf("Public = %q, want %q", data.Public, "hello")
+		}
+		if data.private != "" {
+			t.Errorf("private should be empty, got %q", data.private)
+		}
+	})
+
+	t.Run("struct tag takes precedence over field name", func(t *testing.T) {
+		type Data struct {
+			// Field name is "Value" but tag maps to "count"
+			Value string `regex:"count"`
+		}
+		// Pattern has both "value" and "count" groups
+		re := regexp.MustCompile(`value=(?P<value>\w+) count=(?P<count>\d+)`)
+		var data Data
+		err := Unmarshal(re, "value=hello count=42", &data)
+		if err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		// Should get "42" from "count" group (via tag), not "hello" from "value" group (field name)
+		if data.Value != "42" {
+			t.Errorf("Value = %q, want %q (should use tag mapping)", data.Value, "42")
+		}
+	})
+}
+
+func ExampleUnmarshal() {
+	type Person struct {
+		Name string
+		Age  int
+	}
+
+	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+) years old`)
+	var person Person
+	err := Unmarshal(re, "Alice is 30 years old", &person)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("%s is %d\n", person.Name, person.Age)
+	// Output: Alice is 30
+}
+
+func ExampleUnmarshal_structTags() {
+	type Email struct {
+		Username string `regex:"user"`
+		Domain   string `regex:"domain"`
+	}
+
+	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+	var email Email
+	err := Unmarshal(re, "alice@example.com", &email)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("User: %s, Domain: %s\n", email.Username, email.Domain)
+	// Output: User: alice, Domain: example.com
+}

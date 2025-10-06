@@ -35,14 +35,18 @@ func main() {
         fmt.Println("Name:", name) // Output: Name: Alice
     }
     
-    // Get all named groups as a map. If a group matches multiple times, the last match value will be returned
+    // Get all named groups as a map
     groups := regextra.NamedGroups(re, "Alice 30")
     fmt.Println(groups) // Output: map[age:30 name:Alice]
     
-    // Get all values for duplicate group names
-    re2 := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
-    allGroups := regextra.AllNamedGroups(re2, "hello world")
-    fmt.Println(allGroups) // Output: map[word:[hello world]]
+    // Unmarshal into a struct with type conversion
+    type Person struct {
+        Name string
+        Age  int
+    }
+    var person Person
+    regextra.Unmarshal(re, "Bob 25", &person)
+    fmt.Printf("%s is %d\n", person.Name, person.Age) // Output: Bob is 25
 }
 ```
 
@@ -84,6 +88,46 @@ allGroups := regextra.AllNamedGroups(re, "one two three")
 // allGroups = map[string][]string{"word": []string{"one", "two", "three"}}
 ```
 
+### `Unmarshal(re *regexp.Regexp, target string, v interface{}) error`
+
+Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
+
+**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`
+
+**Field mapping priority:**
+1. Struct tag `regex:"groupname"` if provided (highest priority)
+2. Exact field name match with capture group name
+3. Case-insensitive field name match
+- Unexported fields are ignored
+
+Returns an error if the target is not a pointer to a struct, or if type conversion fails.
+
+```go
+type Person struct {
+    Name string
+    Age  int
+}
+
+re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+var person Person
+err := regextra.Unmarshal(re, "Alice is 30", &person)
+// person.Name = "Alice", person.Age = 30
+```
+
+**With struct tags:**
+
+```go
+type Email struct {
+    Username string `regex:"user"`
+    Domain   string `regex:"domain"`
+}
+
+re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+var email Email
+err := regextra.Unmarshal(re, "alice@example.com", &email)
+// email.Username = "alice", email.Domain = "example.com"
+```
+
 ## Why regextra?
 
 The standard library's `regexp` package requires verbose code to extract named capture groups:
@@ -107,6 +151,7 @@ name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
 - ✅ **Simple functions** - No wrapper types, works directly with `*regexp.Regexp`
 - ✅ **Named group extraction** - Extract groups by name without index juggling
 - ✅ **Map-based access** - Get all named groups in one call
+- ✅ **Struct unmarshaling** - Type-safe extraction with automatic conversion
 - ✅ **Safe by default** - Built-in nil checks, returns empty values on no match
 - ✅ **Zero dependencies** - Only depends on Go's standard library
 

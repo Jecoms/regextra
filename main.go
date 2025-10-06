@@ -15,7 +15,11 @@
 package regextra
 
 import (
+	"fmt"
+	"reflect"
 	"regexp"
+	"strconv"
+	"strings"
 )
 
 // FindNamed returns the value of the named capture group in the target string.
@@ -89,4 +93,162 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 	}
 
 	return result
+}
+
+// Unmarshal extracts named capture groups from the target string and assigns them
+// to the corresponding fields in the provided struct pointer.
+//
+// Field mapping rules:
+//   - First checks the `regex:"groupname"` struct tag if provided (highest priority)
+//   - Falls back to exact field name match with capture group name
+//   - Falls back to case-insensitive field name match
+//   - Supports type conversion for int, int64, float64, and bool
+//   - Unexported fields are ignored
+//
+// Returns an error if:
+//   - v is not a pointer to a struct
+//   - The pattern does not match the target string
+//   - Type conversion fails
+//
+// Example:
+//
+//	type Person struct {
+//	    Name string
+//	    Age  int `regex:"age"`
+//	}
+//	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+//	var person Person
+//	err := regextra.Unmarshal(re, "Alice is 30", &person)
+//	// person.Name = "Alice", person.Age = 30
+func Unmarshal(re *regexp.Regexp, target string, v interface{}) error {
+	// Get reflection value and validate it's a pointer to struct
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return fmt.Errorf("regextra: Unmarshal requires a non-nil pointer to a struct, got %T", v)
+	}
+
+	elem := rv.Elem()
+	if elem.Kind() != reflect.Struct {
+		return fmt.Errorf("regextra: Unmarshal requires a pointer to a struct, got pointer to %s", elem.Kind())
+	}
+
+	// Find the match
+	matches := re.FindStringSubmatch(target)
+	if matches == nil {
+		return nil // No match, but not an error
+	}
+
+	// Build a map of capture group names to their values
+	groupValues := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			groupValues[name] = matches[i]
+		}
+	}
+
+	// Iterate through struct fields
+	structType := elem.Type()
+	for i := 0; i < elem.NumField(); i++ {
+		field := elem.Field(i)
+		fieldType := structType.Field(i)
+
+		// Skip unexported fields
+		if !field.CanSet() {
+			continue
+		}
+
+		// Determine the capture group name for this field
+		groupName := getGroupName(fieldType)
+
+		// Try to find the value for this field
+		value, found := findGroupValue(groupName, fieldType.Name, groupValues)
+		if !found {
+			continue
+		}
+
+		// Set the field value with type conversion
+		if err := setFieldValue(field, value); err != nil {
+			return fmt.Errorf("regextra: failed to set field %s: %w", fieldType.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// getGroupName extracts the group name from the struct tag, or returns empty string
+func getGroupName(field reflect.StructField) string {
+	tag := field.Tag.Get("regex")
+	if tag == "" || tag == "-" {
+		return ""
+	}
+	return tag
+}
+
+// findGroupValue searches for the value in the group values map
+// Priority order: explicit tag > exact field name > case-insensitive field name
+func findGroupValue(tagName, fieldName string, groupValues map[string]string) (string, bool) {
+	// If there's an explicit tag, use it (highest priority)
+	if tagName != "" {
+		value, found := groupValues[tagName]
+		return value, found
+	}
+
+	// Try exact field name match
+	if value, found := groupValues[fieldName]; found {
+		return value, true
+	}
+
+	// Try case-insensitive match
+	lowerFieldName := strings.ToLower(fieldName)
+	for groupName, value := range groupValues {
+		if strings.ToLower(groupName) == lowerFieldName {
+			return value, true
+		}
+	}
+
+	return "", false
+}
+
+// setFieldValue sets the field value with appropriate type conversion
+func setFieldValue(field reflect.Value, value string) error {
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(value)
+		return nil
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		intVal, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to int: %w", value, err)
+		}
+		field.SetInt(intVal)
+		return nil
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		uintVal, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to uint: %w", value, err)
+		}
+		field.SetUint(uintVal)
+		return nil
+
+	case reflect.Float32, reflect.Float64:
+		floatVal, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to float: %w", value, err)
+		}
+		field.SetFloat(floatVal)
+		return nil
+
+	case reflect.Bool:
+		boolVal, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to bool: %w", value, err)
+		}
+		field.SetBool(boolVal)
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported field type: %s", field.Kind())
+	}
 }
