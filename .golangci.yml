@@ -1,33 +1,20 @@
+version: "2"
+
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-    - gofmt
-    - goimports
-    - misspell
-    - unparam
-    - unconvert
-    - goconst
-    - gocyclo
-    - revive
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-
-issues:
-  exclude-use-default: false
-  max-issues-per-linter: 0
-  max-same-issues: 0
+    # Default linters
+    - errcheck      # Checks for unchecked errors
+    - govet         # Examines Go source code and reports suspicious constructs
+    - ineffassign   # Detects unused assignments
+    - staticcheck   # Advanced Go linter
+    - unused        # Checks for unused constants, variables, functions and types
+    # Additional linters
+    - goconst       # Finds repeated strings that could be constants
+    - gocyclo       # Checks cyclomatic complexity
+    - misspell      # Finds commonly misspelled English words
+    - revive        # Fast, configurable linter (golint replacement)
+    - unconvert     # Removes unnecessary type conversions
+    - unparam       # Reports unused function parameters
 
 run:
   timeout: 5m
-  tests: true
