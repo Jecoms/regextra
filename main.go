@@ -188,7 +188,7 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	allMatches := re.FindAllStringSubmatch(target, -1)
 	if len(allMatches) == 0 {
 		// Clear the slice and return (no matches is not an error)
-		elem.Set(reflect.MakeSlice(elem.Type(), 0, 0))
+		elem.SetLen(0)
 		return nil
 	}
 
@@ -225,7 +225,7 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 // populateStruct fills a struct's fields from a map of capture group values
 func populateStruct(structValue reflect.Value, groupValues map[string]string) error {
 	structType := structValue.Type()
-	for i := 0; i < structValue.NumField(); i++ {
+	for i := range structValue.NumField() {
 		field := structValue.Field(i)
 		fieldType := structType.Field(i)
 
