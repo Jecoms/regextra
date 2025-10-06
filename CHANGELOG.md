@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clears slice when no matches found
 - CONTRIBUTING.md guide for contributors and AI agents
 - Dependabot configuration for automated dependency updates
+- Automatic release tagging workflow (tags releases when release PRs are merged)
+  - Validates semver format
+  - Prevents duplicate tags
+  - Automatically cleans up release branches
 
 ### Changed
 - Updated golangci-lint configuration to v2 format
