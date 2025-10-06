@@ -120,7 +120,7 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 //	var person Person
 //	err := regextra.Unmarshal(re, "Alice is 30", &person)
 //	// person.Name = "Alice", person.Age = 30
-func Unmarshal(re *regexp.Regexp, target string, v interface{}) error {
+func Unmarshal(re *regexp.Regexp, target string, v any) error {
 	// Get reflection value and validate it's a pointer to struct
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
@@ -146,10 +146,87 @@ func Unmarshal(re *regexp.Regexp, target string, v interface{}) error {
 		}
 	}
 
-	// Iterate through struct fields
-	structType := elem.Type()
-	for i := 0; i < elem.NumField(); i++ {
-		field := elem.Field(i)
+	// Populate the struct fields
+	return populateStruct(elem, groupValues)
+}
+
+// UnmarshalAll extracts all occurrences of the regex pattern from the target string
+// and unmarshals them into a slice of structs. The slice is cleared before populating.
+//
+// v must be a pointer to a slice of structs. If no matches are found, the slice will
+// be empty (length 0).
+//
+// Example:
+//
+//	type Person struct {
+//	    Name string
+//	    Age  int
+//	}
+//	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+//	var people []Person
+//	err := regextra.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+//	// people = []Person{{Name: "Alice", Age: 30}, {Name: "Bob", Age: 25}}
+func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
+	// Get reflection value and validate it's a pointer to slice
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return fmt.Errorf("regextra: UnmarshalAll requires a non-nil pointer to a slice, got %T", v)
+	}
+
+	elem := rv.Elem()
+	if elem.Kind() != reflect.Slice {
+		return fmt.Errorf("regextra: UnmarshalAll requires a pointer to a slice, got pointer to %s", elem.Kind())
+	}
+
+	// Get the slice element type and verify it's a struct
+	sliceElemType := elem.Type().Elem()
+	if sliceElemType.Kind() != reflect.Struct {
+		return fmt.Errorf("regextra: UnmarshalAll requires a slice of structs, got slice of %s", sliceElemType.Kind())
+	}
+
+	// Find all matches
+	allMatches := re.FindAllStringSubmatch(target, -1)
+	if len(allMatches) == 0 {
+		// Clear the slice and return (no matches is not an error)
+		elem.Set(reflect.MakeSlice(elem.Type(), 0, 0))
+		return nil
+	}
+
+	// Create a new slice with capacity for all matches
+	newSlice := reflect.MakeSlice(elem.Type(), 0, len(allMatches))
+
+	// Process each match
+	for _, matches := range allMatches {
+		// Build a map of capture group names to their values for this match
+		groupValues := make(map[string]string)
+		for i, name := range re.SubexpNames() {
+			if i != 0 && name != "" {
+				groupValues[name] = matches[i]
+			}
+		}
+
+		// Create a new struct instance
+		structValue := reflect.New(sliceElemType).Elem()
+
+		// Populate the struct fields
+		if err := populateStruct(structValue, groupValues); err != nil {
+			return err
+		}
+
+		// Append to the slice
+		newSlice = reflect.Append(newSlice, structValue)
+	}
+
+	// Set the slice to the new value
+	elem.Set(newSlice)
+	return nil
+}
+
+// populateStruct fills a struct's fields from a map of capture group values
+func populateStruct(structValue reflect.Value, groupValues map[string]string) error {
+	structType := structValue.Type()
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
 		fieldType := structType.Field(i)
 
 		// Skip unexported fields

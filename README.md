@@ -47,6 +47,11 @@ func main() {
     var person Person
     regextra.Unmarshal(re, "Bob 25", &person)
     fmt.Printf("%s is %d\n", person.Name, person.Age) // Output: Bob is 25
+    
+    // Unmarshal all matches into a slice
+    var people []Person
+    regextra.UnmarshalAll(re, "Alice 30 and Bob 25", &people)
+    fmt.Println(len(people)) // Output: 2
 }
 ```
 
@@ -88,7 +93,7 @@ allGroups := regextra.AllNamedGroups(re, "one two three")
 // allGroups = map[string][]string{"word": []string{"one", "two", "three"}}
 ```
 
-### `Unmarshal(re *regexp.Regexp, target string, v interface{}) error`
+### `Unmarshal(re *regexp.Regexp, target string, v any) error`
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
 
@@ -126,6 +131,31 @@ re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
 var email Email
 err := regextra.Unmarshal(re, "alice@example.com", &email)
 // email.Username = "alice", email.Domain = "example.com"
+```
+
+### `UnmarshalAll(re *regexp.Regexp, target string, v any) error`
+
+UnmarshalAll finds all occurrences of the regex pattern in the target string and unmarshals them into a slice of structs. The slice is cleared before populating.
+
+v must be a pointer to a slice of structs. If no matches are found, the slice will be empty.
+
+**Supported field types:** Same as `Unmarshal`
+
+**Field mapping priority:** Same as `Unmarshal`
+
+```go
+type Person struct {
+    Name string
+    Age  int
+}
+
+re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+var people []Person
+err := regextra.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+// people = []Person{
+//     {Name: "Alice", Age: 30},
+//     {Name: "Bob", Age: 25},
+// }
 ```
 
 ## Why regextra?

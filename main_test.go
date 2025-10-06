@@ -442,3 +442,151 @@ func ExampleUnmarshal_structTags() {
 	fmt.Printf("User: %s, Domain: %s\n", email.Username, email.Domain)
 	// Output: User: alice, Domain: example.com
 }
+
+func TestUnmarshalAll(t *testing.T) {
+	t.Run("multiple matches", func(t *testing.T) {
+		type Person struct {
+			Name string
+			Age  int
+		}
+		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+		var people []Person
+		err := UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+		if err != nil {
+			t.Fatalf("UnmarshalAll() error = %v", err)
+		}
+		if len(people) != 2 {
+			t.Fatalf("len(people) = %d, want 2", len(people))
+		}
+		if people[0].Name != "Alice" || people[0].Age != 30 {
+			t.Errorf("people[0] = %+v, want {Name:Alice Age:30}", people[0])
+		}
+		if people[1].Name != "Bob" || people[1].Age != 25 {
+			t.Errorf("people[1] = %+v, want {Name:Bob Age:25}", people[1])
+		}
+	})
+
+	t.Run("no matches clears slice", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>[a-z]+)`)
+		people := []Person{{Name: "existing"}}
+		err := UnmarshalAll(re, "123", &people)
+		if err != nil {
+			t.Fatalf("UnmarshalAll() error = %v", err)
+		}
+		if len(people) != 0 {
+			t.Errorf("len(people) = %d, want 0 (should clear slice)", len(people))
+		}
+	})
+
+	t.Run("single match", func(t *testing.T) {
+		type Email struct {
+			User   string `regex:"user"`
+			Domain string `regex:"domain"`
+		}
+		re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+		var emails []Email
+		err := UnmarshalAll(re, "Contact: alice@example.com", &emails)
+		if err != nil {
+			t.Fatalf("UnmarshalAll() error = %v", err)
+		}
+		if len(emails) != 1 {
+			t.Fatalf("len(emails) = %d, want 1", len(emails))
+		}
+		if emails[0].User != "alice" || emails[0].Domain != "example.com" {
+			t.Errorf("emails[0] = %+v, want {User:alice Domain:example.com}", emails[0])
+		}
+	})
+
+	t.Run("three matches with different types", func(t *testing.T) {
+		type Product struct {
+			Name  string
+			Price float64
+		}
+		re := regexp.MustCompile(`(?P<name>\w+):\$(?P<price>[\d.]+)`)
+		var products []Product
+		err := UnmarshalAll(re, "Items: Apple:$1.50 Banana:$0.75 Orange:$2.00", &products)
+		if err != nil {
+			t.Fatalf("UnmarshalAll() error = %v", err)
+		}
+		if len(products) != 3 {
+			t.Fatalf("len(products) = %d, want 3", len(products))
+		}
+		want := []Product{
+			{Name: "Apple", Price: 1.50},
+			{Name: "Banana", Price: 0.75},
+			{Name: "Orange", Price: 2.00},
+		}
+		if !reflect.DeepEqual(products, want) {
+			t.Errorf("products = %+v, want %+v", products, want)
+		}
+	})
+
+	t.Run("error on non-pointer", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var people []Person
+		err := UnmarshalAll(re, "Alice", people) // Not a pointer
+		if err == nil {
+			t.Error("UnmarshalAll() expected error for non-pointer, got nil")
+		}
+	})
+
+	t.Run("error on nil pointer", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var people *[]Person
+		err := UnmarshalAll(re, "Alice", people) // Nil pointer
+		if err == nil {
+			t.Error("UnmarshalAll() expected error for nil pointer, got nil")
+		}
+	})
+
+	t.Run("error on pointer to non-slice", func(t *testing.T) {
+		type Person struct {
+			Name string
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var person Person
+		err := UnmarshalAll(re, "Alice", &person) // Pointer to struct, not slice
+		if err == nil {
+			t.Error("UnmarshalAll() expected error for pointer to non-slice, got nil")
+		}
+	})
+
+	t.Run("error on slice of non-structs", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var names []string
+		err := UnmarshalAll(re, "Alice", &names) // Slice of strings, not structs
+		if err == nil {
+			t.Error("UnmarshalAll() expected error for slice of non-structs, got nil")
+		}
+	})
+}
+
+func ExampleUnmarshalAll() {
+	type Person struct {
+		Name string
+		Age  int
+	}
+
+	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+	var people []Person
+	err := UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	for _, person := range people {
+		fmt.Printf("%s: %d\n", person.Name, person.Age)
+	}
+	// Output: Alice: 30
+	// Bob: 25
+}
