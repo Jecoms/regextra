@@ -1,0 +1,63 @@
+name: Auto Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create Release Tag
+    # Only run if PR was merged and branch name starts with 'release/'
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      with:
+        ref: main
+
+    - name: Extract version from branch name
+      id: extract_version
+      run: |
+        BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+        VERSION="${BRANCH_NAME#release/}"
+        
+        # Validate version format (must be v*.*.*)
+        if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "❌ Invalid version format: $VERSION"
+          echo "Expected format: v0.3.0"
+          exit 1
+        fi
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "✅ Extracted version: $VERSION"
+
+    - name: Check if tag already exists
+      run: |
+        VERSION="${{ steps.extract_version.outputs.version }}"
+        if git rev-parse "$VERSION" >/dev/null 2>&1; then
+          echo "❌ Tag $VERSION already exists"
+          exit 1
+        fi
+        echo "✅ Tag $VERSION does not exist, safe to create"
+
+    - name: Create and push tag
+      run: |
+        VERSION="${{ steps.extract_version.outputs.version }}"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag "$VERSION"
+        git push origin "$VERSION"
+        echo "✅ Created and pushed tag: $VERSION"
+
+    - name: Delete release branch
+      run: |
+        gh pr view ${{ github.event.pull_request.number }} --json headRefName -q .headRefName | \
+        xargs -I {} git push origin --delete {}
+      env:
+        GH_TOKEN: ${{ github.token }}
