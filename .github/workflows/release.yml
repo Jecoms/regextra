@@ -15,30 +15,22 @@ jobs:
     
     steps:
     - name: Check out code
-      uses: actions/checkout@v4
+      uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955  # v4
       with:
         fetch-depth: 0
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5  # v5
       with:
         go-version: '1.24'
 
     - name: Run tests
       run: go test -v ./...
 
-    - name: Get version from tag
-      id: tag_name
-      run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
     - name: Create Release
-      uses: actions/create-release@v1
+      run: |
+        gh release create ${{ github.ref_name }} \
+          --title "${{ github.ref_name }}" \
+          --notes "See [CHANGELOG.md](https://github.com/jecoms/regextra/blob/main/CHANGELOG.md) for details."
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag_name.outputs.TAG }}
-        release_name: Release ${{ steps.tag_name.outputs.TAG }}
-        draft: false
-        prerelease: false
-        body: |
-          See [CHANGELOG.md](https://github.com/jecoms/regextra/blob/main/CHANGELOG.md) for details.
+        GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,41 @@
+# Dependabot configuration for keeping GitHub Actions up to date
+# This will automatically create PRs when new versions of actions are available
+
+version: 2
+updates:
+  # Monitor GitHub Actions for updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "Jecoms"
+    # Limit the number of open PRs
+    open-pull-requests-limit: 5
+
+  # Monitor Go modules for updates
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "go"
+    reviewers:
+      - "Jecoms"
+    open-pull-requests-limit: 5
