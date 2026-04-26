@@ -119,6 +119,18 @@ out := regextra.Replace(re, "alice@example.com bob@other.org", map[string]string
 // out = "alice@redacted bob@redacted"
 ```
 
+### `Validate(re *regexp.Regexp, required ...string) error`
+
+Returns an error listing every required group name that is not declared on `re`. Use it for init-time assertions in services that compile patterns once: catch typos at startup rather than at the first (mis-)matched request.
+
+```go
+re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+
+if err := regextra.Validate(re, "name", "age", "ssn"); err != nil {
+    // err: regextra.Validate: missing named groups: ssn
+}
+```
+
 ### `Unmarshal(re *regexp.Regexp, target string, v any) error`
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
