@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-26
+
+The architectural perf release. Adds `Decoder[T]` — a typed, regex-bound unmarshaler that compiles its decode plan once and reuses it across calls. **~45% faster on simple-struct decode and ~37% faster on streaming log-line iteration** vs the existing free-function `Unmarshal` / `UnmarshalAll`.
+
+Additive minor release. `Unmarshal` and `UnmarshalAll` keep working unchanged.
+
+### Added
+
+- **`Compile[T any](pattern string) (*Decoder[T], error)`** and **`MustCompile[T any](pattern string) *Decoder[T]`** — construct a typed decoder. Compile-time validation surfaces invalid pattern, non-struct `T`, undeclared group references, malformed `default=` values, and `layout=` on non-`time.Time` fields. Use `MustCompile` for package-level vars where startup-time failure is the right behavior. ([#69](https://github.com/Jecoms/regextra/pull/69))
+- **`Decoder[T].One(target string) (T, error)`** — decode the first match. Returns sentinel `ErrNoMatch` (compare with `errors.Is`) when there's no match. ([#69](https://github.com/Jecoms/regextra/pull/69))
+- **`Decoder[T].All(target string) ([]T, error)`** — decode every match into a slice. Returns empty slice + nil error when there are no matches. ([#69](https://github.com/Jecoms/regextra/pull/69))
+- **`Decoder[T].Iter(target string) iter.Seq2[T, error]`** — range-over-func streaming decode. Pairs each match with its per-match decode error so callers can skip individual failures without aborting the whole iteration. Skips the slice allocation `All` performs; `break` in the range body avoids decoding the remaining matches. ([#71](https://github.com/Jecoms/regextra/pull/71))
+- **`Decoder[T].Pattern() string`** — debug accessor for the regex source.
+- **`ErrNoMatch`** — exported sentinel returned by `Decoder.One` when there's no match. ([#69](https://github.com/Jecoms/regextra/pull/69))
+
+### Changed
+
+- Tests converted to `package regextra_test` (external test package). Forces all test code through the public API surface — same way users will call the package — and prevents accidental coupling to unexported internals. Mirrors stdlib precedent (`encoding/json`, `regexp`, `net/http`). `decoder_test.go` shipped external from #69; the older three test files converted in #70. ([#70](https://github.com/Jecoms/regextra/pull/70))
+- `TestParseFieldTag` dropped — `parseFieldTag` is unexported, and tag-parsing behavior is already covered end-to-end by `TestUnmarshalDefault` and `TestUnmarshalLayoutOverride`. Granular vs. integration coverage is a wash for a small library, and dropping the direct test makes future tag-parser refactors cheaper. ([#70](https://github.com/Jecoms/regextra/pull/70))
+
+### Performance
+
+Apple M4, Go 1.24, baselines from the existing benchmarks:
+
+| Benchmark | v0.4.0 | v0.5.0 (Decoder) | delta |
+|-----------|-------:|----------------:|------:|
+| Simple-struct decode (one match) | 496 ns/op, 6 allocs | **270 ns/op, 3 allocs** | ~45% faster, 50% fewer allocs |
+| 100-line log iteration | 48 µs/op, 608 allocs | **30 µs/op, 309 allocs** (Iter) | ~37% faster, ~50% fewer allocs |
+
+Win comes from skipping the per-call `SubexpNames()` map build and per-field `parseFieldTag` work — both run once at Compile, never again. `Iter` additionally skips the result-slice allocation that `UnmarshalAll` performs.
+
 ## [0.4.0] - 2026-04-26
 
 Additive minor release. No breaking changes — every existing field type, function signature, and tag form keeps working. New surface area in three buckets: extraction helpers, an extension point for caller-defined types, and richer `Unmarshal` field-type support.
