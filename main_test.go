@@ -274,6 +274,91 @@ func ExampleAllNamedGroups() {
 	// Output: word: [one two three]
 }
 
+func TestReplace(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		repl    map[string]string
+		want    string
+	}{
+		{
+			name:    "single match, single substitution",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com",
+			repl:    map[string]string{"domain": "redacted"},
+			want:    "alice@redacted",
+		},
+		{
+			name:    "single match, all groups substituted",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com",
+			repl:    map[string]string{"user": "bob", "domain": "redacted"},
+			want:    "bob@redacted",
+		},
+		{
+			name:    "multiple matches, every match substituted",
+			pattern: `(?P<word>\w+)`,
+			target:  "alpha beta gamma",
+			repl:    map[string]string{"word": "X"},
+			want:    "X X X",
+		},
+		{
+			name:    "multiple matches, key not in map passes through",
+			pattern: `(?P<key>\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2",
+			repl:    map[string]string{"val": "?"},
+			want:    "a=? b=?",
+		},
+		{
+			name:    "no match returns target unchanged",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "no matches here",
+			repl:    map[string]string{"word": "X"},
+			want:    "no matches here",
+		},
+		{
+			name:    "empty replacements returns target unchanged",
+			pattern: `(?P<word>\w+)`,
+			target:  "alpha beta",
+			repl:    map[string]string{},
+			want:    "alpha beta",
+		},
+		{
+			name:    "unknown group name in map is ignored",
+			pattern: `(?P<word>\w+)`,
+			target:  "hello",
+			repl:    map[string]string{"missing": "X"},
+			want:    "hello",
+		},
+		{
+			name:    "preserves non-matching text between matches",
+			pattern: `(?P<num>\d+)`,
+			target:  "a 1 b 2 c 3 d",
+			repl:    map[string]string{"num": "*"},
+			want:    "a * b * c * d",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := Replace(re, tt.target, tt.repl)
+			if got != tt.want {
+				t.Errorf("Replace = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func ExampleReplace() {
+	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+	out := Replace(re, "alice@example.com bob@other.org", map[string]string{
+		"domain": "redacted",
+	})
+	fmt.Println(out)
+	// Output: alice@redacted bob@redacted
+}
+
 func TestUnmarshal(t *testing.T) {
 	t.Run("basic string fields", func(t *testing.T) {
 		type Person struct {

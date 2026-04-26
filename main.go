@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -123,6 +124,74 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 	}
 
 	return result
+}
+
+// Replace substitutes the matched span of each named capture group in
+// target with the value from replacements, leaving non-matching text and
+// any groups absent from the map unchanged. Replace operates on every
+// match of re, in order.
+//
+// If a regex declares a named group but replacements has no entry for it,
+// the original matched text passes through. Groups that don't participate
+// in a match (optional groups returning index -1) are skipped.
+//
+// When named groups overlap (nesting), the outermost-named group whose
+// span is encountered first wins; inner groups inside an already-replaced
+// span are not substituted.
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+//	out := regextra.Replace(re, "alice@example.com", map[string]string{
+//	    "domain": "redacted",
+//	})
+//	// out = "alice@redacted"
+func Replace(re *regexp.Regexp, target string, replacements map[string]string) string {
+	if len(replacements) == 0 {
+		return target
+	}
+	matches := re.FindAllStringSubmatchIndex(target, -1)
+	if len(matches) == 0 {
+		return target
+	}
+	names := re.SubexpNames()
+
+	type span struct {
+		start, end int
+		repl       string
+	}
+
+	var b strings.Builder
+	cursor := 0
+	for _, m := range matches {
+		spans := make([]span, 0, len(names))
+		for i := 1; i < len(names); i++ {
+			name := names[i]
+			if name == "" {
+				continue
+			}
+			repl, ok := replacements[name]
+			if !ok {
+				continue
+			}
+			s, e := m[2*i], m[2*i+1]
+			if s < 0 || e < 0 {
+				continue
+			}
+			spans = append(spans, span{start: s, end: e, repl: repl})
+		}
+		sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+		for _, sp := range spans {
+			if sp.start < cursor {
+				continue // already covered (overlap with an earlier substitution)
+			}
+			b.WriteString(target[cursor:sp.start])
+			b.WriteString(sp.repl)
+			cursor = sp.end
+		}
+	}
+	b.WriteString(target[cursor:])
+	return b.String()
 }
 
 // Unmarshal extracts named capture groups from the target string and assigns them
