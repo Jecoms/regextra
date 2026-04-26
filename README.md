@@ -171,6 +171,47 @@ err := regextra.Unmarshal(re, "alice@example.com", &email)
 // email.Username = "alice", email.Domain = "example.com"
 ```
 
+### `RegexUnmarshaler` interface
+
+Mirror of `encoding.TextUnmarshaler` for regextra's unmarshal path. When a destination field's pointer type satisfies this interface, `Unmarshal` (and `UnmarshalAll`) call `UnmarshalRegex` with the matched group value instead of running the built-in string/int/uint/float/bool conversion.
+
+```go
+type RegexUnmarshaler interface {
+    UnmarshalRegex(value string) error
+}
+```
+
+The extension point for caller-defined types the built-in type switch can't handle (URLs, enums, big numbers, IP addresses, etc.).
+
+```go
+type Status int
+
+const (
+    StatusUnknown Status = iota
+    StatusOpen
+    StatusClosed
+)
+
+func (s *Status) UnmarshalRegex(value string) error {
+    switch value {
+    case "open":   *s = StatusOpen
+    case "closed": *s = StatusClosed
+    default:       return fmt.Errorf("unknown status %q", value)
+    }
+    return nil
+}
+
+type Issue struct {
+    ID    int    `regex:"id"`
+    State Status `regex:"state"`
+}
+
+re := regexp.MustCompile(`#(?P<id>\d+) \[(?P<state>\w+)\]`)
+var issue Issue
+regextra.Unmarshal(re, "#42 [open]", &issue)
+// issue = Issue{ID: 42, State: StatusOpen}
+```
+
 ### `UnmarshalAll(re *regexp.Regexp, target string, v any) error`
 
 UnmarshalAll finds all occurrences of the regex pattern in the target string and unmarshals them into a slice of structs. The slice is cleared before populating.

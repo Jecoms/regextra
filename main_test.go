@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -411,12 +412,123 @@ func TestValidate(t *testing.T) {
 	})
 }
 
+// status is a custom type whose pointer satisfies RegexUnmarshaler;
+// used by TestUnmarshalRegexUnmarshaler.
+type status int
+
+const (
+	statusUnknown status = iota
+	statusOpen
+	statusClosed
+)
+
+func (s *status) UnmarshalRegex(value string) error {
+	switch value {
+	case "open":
+		*s = statusOpen
+	case "closed":
+		*s = statusClosed
+	default:
+		return fmt.Errorf("unknown status %q", value)
+	}
+	return nil
+}
+
+// valueReceiver is here to confirm the value-receiver implements path is hit.
+// Note: a value receiver can't actually mutate the field, so this is only
+// useful for read-only side effects in tests.
+type valueReceiver struct{}
+
+func (v valueReceiver) UnmarshalRegex(value string) error {
+	if value == "fail" {
+		return fmt.Errorf("valueReceiver rejected: %s", value)
+	}
+	return nil
+}
+
+func TestUnmarshalRegexUnmarshaler(t *testing.T) {
+	t.Run("pointer-receiver custom type populates field", func(t *testing.T) {
+		type Issue struct {
+			ID    int    `regex:"id"`
+			State status `regex:"state"`
+		}
+		re := regexp.MustCompile(`#(?P<id>\d+) \[(?P<state>\w+)\]`)
+		var issue Issue
+		if err := Unmarshal(re, "#42 [open]", &issue); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if issue.ID != 42 {
+			t.Errorf("ID = %d, want 42", issue.ID)
+		}
+		if issue.State != statusOpen {
+			t.Errorf("State = %d, want %d (statusOpen)", issue.State, statusOpen)
+		}
+	})
+
+	t.Run("RegexUnmarshaler error propagates", func(t *testing.T) {
+		type Issue struct {
+			State status `regex:"state"`
+		}
+		re := regexp.MustCompile(`\[(?P<state>\w+)\]`)
+		var issue Issue
+		err := Unmarshal(re, "[bogus]", &issue)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error")
+		}
+		if !strings.Contains(err.Error(), `unknown status "bogus"`) {
+			t.Errorf("error = %q, want it to mention 'unknown status \"bogus\"'", err.Error())
+		}
+	})
+
+	t.Run("RegexUnmarshaler intercepts before built-in int conversion", func(t *testing.T) {
+		// status's underlying type is int, so without the interface check
+		// setFieldValue would try strconv.ParseInt on "open" and fail.
+		type Issue struct {
+			State status `regex:"state"`
+		}
+		re := regexp.MustCompile(`\[(?P<state>\w+)\]`)
+		var issue Issue
+		if err := Unmarshal(re, "[open]", &issue); err != nil {
+			t.Fatalf("Unmarshal returned %v — interface check was not hit before int conversion", err)
+		}
+	})
+
+	t.Run("value-receiver implementation is consulted", func(t *testing.T) {
+		type Holder struct {
+			V valueReceiver `regex:"v"`
+		}
+		re := regexp.MustCompile(`(?P<v>\w+)`)
+		var h Holder
+		if err := Unmarshal(re, "ok", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+	})
+}
+
 func ExampleValidate() {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 	if err := Validate(re, "name", "age", "ssn"); err != nil {
 		fmt.Println(err)
 	}
 	// Output: regextra.Validate: missing named groups: ssn
+}
+
+func ExampleRegexUnmarshaler() {
+	type Severity int
+	const (
+		_ Severity = iota
+		Low
+		Medium
+		High
+	)
+	// In real code this would be a type defined in the same package as
+	// the call to Unmarshal, with `func (s *Severity) UnmarshalRegex(...) error`.
+	// Compile-time check elided here for example brevity.
+	_ = Low
+	_ = Medium
+	_ = High
+	fmt.Println("see TestUnmarshalRegexUnmarshaler for a runnable demo")
+	// Output: see TestUnmarshalRegexUnmarshaler for a runnable demo
 }
 
 func TestUnmarshal(t *testing.T) {

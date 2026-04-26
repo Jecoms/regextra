@@ -418,8 +418,53 @@ func findGroupValue(tagName, fieldName string, groupValues map[string]string) (s
 	return "", false
 }
 
+// RegexUnmarshaler is the interface implemented by types that know how to
+// initialize themselves from a regex group's matched string. It mirrors
+// [encoding.TextUnmarshaler] for the regextra unmarshal path: when a
+// destination field's pointer type satisfies this interface, [Unmarshal]
+// (and [UnmarshalAll]) call UnmarshalRegex with the matched group value
+// instead of running the built-in string/int/uint/float/bool conversion.
+//
+// This is the extension point for caller-defined types that the built-in
+// type switch can't handle (URLs, enums, big numbers, IP addresses, etc.).
+//
+// Example:
+//
+//	type Status int
+//
+//	func (s *Status) UnmarshalRegex(value string) error {
+//	    switch value {
+//	    case "open":   *s = StatusOpen
+//	    case "closed": *s = StatusClosed
+//	    default:       return fmt.Errorf("unknown status: %q", value)
+//	    }
+//	    return nil
+//	}
+type RegexUnmarshaler interface {
+	UnmarshalRegex(value string) error
+}
+
+// regexUnmarshalerType is the reflect.Type of RegexUnmarshaler, cached so
+// the implements-check on every field doesn't pay the reflect.TypeOf cost.
+var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
+
 // setFieldValue sets the field value with appropriate type conversion
 func setFieldValue(field reflect.Value, value string) error {
+	// If the field (or its addressable pointer) satisfies RegexUnmarshaler,
+	// hand off to the caller-defined conversion. Checked first so the
+	// built-in conversions can't pre-empt a more specific user type.
+	if field.CanAddr() {
+		if u, ok := field.Addr().Interface().(RegexUnmarshaler); ok {
+			return u.UnmarshalRegex(value)
+		}
+	}
+	if field.Type().Implements(regexUnmarshalerType) {
+		// Value-receiver method. Rare but possible.
+		if u, ok := field.Interface().(RegexUnmarshaler); ok {
+			return u.UnmarshalRegex(value)
+		}
+	}
+
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(value)
