@@ -101,7 +101,7 @@ func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 
 // benchSimpleDecoder is the same struct decoded via a precompiled Decoder.
 // Compare against BenchmarkUnmarshal_simpleStruct to see the v0.5.0 win.
-var benchSimpleDecoder = MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
+var benchSimpleDecoder = rx.MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
 
 // BenchmarkDecoder_simpleStruct.One measures the same shape as
 // BenchmarkUnmarshal_simpleStruct via a precompiled Decoder. Both reuse

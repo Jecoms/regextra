@@ -18,11 +18,20 @@ const (
 	statusClosed
 )
 
+const (
+	stateOpen   = "open"
+	stateClosed = "closed"
+)
+
+// aliceFixture is the canonical fixture string used across input-validation
+// tests. Defined as a const to keep the goconst linter happy.
+const aliceFixture = "Alice"
+
 func (s *status) UnmarshalRegex(value string) error {
 	switch value {
-	case "open":
+	case stateOpen:
 		*s = statusOpen
-	case "closed":
+	case stateClosed:
 		*s = statusClosed
 	default:
 		return fmt.Errorf("unknown status %q", value)
@@ -536,8 +545,8 @@ func TestUnmarshal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if person.Name != "Alice" {
-			t.Errorf("Name = %q, want %q", person.Name, "Alice")
+		if person.Name != aliceFixture {
+			t.Errorf("Name = %q, want %q", person.Name, aliceFixture)
 		}
 		if person.Age != "30" {
 			t.Errorf("Age = %q, want %q", person.Age, "30")
@@ -641,7 +650,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person Person
-		err := rx.Unmarshal(re, "Alice", person) // Not a pointer
+		err := rx.Unmarshal(re, aliceFixture, person) // Not a pointer
 		if err == nil {
 			t.Error("Unmarshal() expected error for non-pointer, got nil")
 		}
@@ -653,7 +662,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person *Person
-		err := rx.Unmarshal(re, "Alice", person) // Nil pointer
+		err := rx.Unmarshal(re, aliceFixture, person) // Nil pointer
 		if err == nil {
 			t.Error("Unmarshal() expected error for nil pointer, got nil")
 		}
@@ -662,7 +671,7 @@ func TestUnmarshal(t *testing.T) {
 	t.Run("error on pointer to non-struct", func(t *testing.T) {
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var name string
-		err := rx.Unmarshal(re, "Alice", &name) // Pointer to string, not struct
+		err := rx.Unmarshal(re, aliceFixture, &name) // Pointer to string, not struct
 		if err == nil {
 			t.Error("Unmarshal() expected error for pointer to non-struct, got nil")
 		}
@@ -776,7 +785,7 @@ func TestUnmarshalAll(t *testing.T) {
 		if len(people) != 2 {
 			t.Fatalf("len(people) = %d, want 2", len(people))
 		}
-		if people[0].Name != "Alice" || people[0].Age != 30 {
+		if people[0].Name != aliceFixture || people[0].Age != 30 {
 			t.Errorf("people[0] = %+v, want {Name:Alice Age:30}", people[0])
 		}
 		if people[1].Name != "Bob" || people[1].Age != 25 {
@@ -848,7 +857,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var people []Person
-		err := rx.UnmarshalAll(re, "Alice", people) // Not a pointer
+		err := rx.UnmarshalAll(re, aliceFixture, people) // Not a pointer
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for non-pointer, got nil")
 		}
@@ -860,7 +869,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var people *[]Person
-		err := rx.UnmarshalAll(re, "Alice", people) // Nil pointer
+		err := rx.UnmarshalAll(re, aliceFixture, people) // Nil pointer
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for nil pointer, got nil")
 		}
@@ -872,7 +881,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person Person
-		err := rx.UnmarshalAll(re, "Alice", &person) // Pointer to struct, not slice
+		err := rx.UnmarshalAll(re, aliceFixture, &person) // Pointer to struct, not slice
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for pointer to non-slice, got nil")
 		}
@@ -881,7 +890,7 @@ func TestUnmarshalAll(t *testing.T) {
 	t.Run("error on slice of non-structs", func(t *testing.T) {
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var names []string
-		err := rx.UnmarshalAll(re, "Alice", &names) // Slice of strings, not structs
+		err := rx.UnmarshalAll(re, aliceFixture, &names) // Slice of strings, not structs
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for slice of non-structs, got nil")
 		}
