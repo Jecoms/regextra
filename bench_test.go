@@ -2,6 +2,7 @@ package regextra
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -183,11 +184,8 @@ func BenchmarkUnmarshalAll_logLines(b *testing.B) {
 		Msg   string `regex:"msg"`
 	}
 	re := regexp.MustCompile(`\[(?P<level>\w+)\] (?P<msg>[^\n]+)`)
-	// Build 100 lines of input
-	var target string
-	for i := 0; i < 100; i++ {
-		target += "[info] message body here\n"
-	}
+	// 100 lines of input
+	target := strings.Repeat("[info] message body here\n", 100)
 	b.ReportAllocs()
 	for b.Loop() {
 		var lines []line
