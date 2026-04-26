@@ -433,13 +433,6 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 	return nil
 }
 
-// getGroupName extracts the group name from the struct tag, or returns empty string.
-// Thin wrapper around parseFieldTag for callers that don't need the options map.
-func getGroupName(field reflect.StructField) string {
-	name, _ := parseFieldTag(field)
-	return name
-}
-
 // parseFieldTag parses a `regex:"name,key=value,key=value"` struct tag into
 // the group name and an options map. The grammar is intentionally
 // json/encoding-style: the first comma-separated piece is the name; each

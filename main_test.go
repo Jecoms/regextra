@@ -694,13 +694,14 @@ func TestUnmarshalDefault(t *testing.T) {
 			Name string `regex:"name"`
 			Role string `regex:"role,default=guest"`
 		}
+		const wantName = "Mallory"
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var p Person
-		if err := Unmarshal(re, "Alice", &p); err != nil {
+		if err := Unmarshal(re, wantName, &p); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
-		if p.Name != "Alice" {
-			t.Errorf("Name = %q, want Alice", p.Name)
+		if p.Name != wantName {
+			t.Errorf("Name = %q, want %q", p.Name, wantName)
 		}
 		if p.Role != "guest" {
 			t.Errorf("Role = %q, want guest (default)", p.Role)
