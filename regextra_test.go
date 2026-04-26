@@ -1,7 +1,8 @@
-package regextra
+package regextra_test
 
 import (
 	"fmt"
+	rx "github.com/jecoms/regextra"
 	"reflect"
 	"regexp"
 	"testing"
@@ -60,7 +61,7 @@ func TestFindNamed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			got, found := FindNamed(re, tt.target, tt.groupName)
+			got, found := rx.FindNamed(re, tt.target, tt.groupName)
 			if got != tt.want {
 				t.Errorf("FindNamed() got = %v, want %v", got, tt.want)
 			}
@@ -105,7 +106,7 @@ func TestNamedGroups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			if got := NamedGroups(re, tt.target); !reflect.DeepEqual(got, tt.want) {
+			if got := rx.NamedGroups(re, tt.target); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NamedGroups() = %v, want %v", got, tt.want)
 			}
 		})
@@ -114,7 +115,7 @@ func TestNamedGroups(t *testing.T) {
 
 func ExampleFindNamed() {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-	name, ok := FindNamed(re, "Alice 30", "name")
+	name, ok := rx.FindNamed(re, "Alice 30", "name")
 	fmt.Printf("%s: %v\n", name, ok)
 	// Output: Alice: true
 }
@@ -166,7 +167,7 @@ func TestFindAllNamed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			got := FindAllNamed(re, tt.target, tt.group)
+			got := rx.FindAllNamed(re, tt.target, tt.group)
 			if tt.want == nil {
 				if got != nil {
 					t.Errorf("FindAllNamed = %v, want nil", got)
@@ -182,14 +183,14 @@ func TestFindAllNamed(t *testing.T) {
 
 func ExampleFindAllNamed() {
 	re := regexp.MustCompile(`(?P<word>\S+)`)
-	words := FindAllNamed(re, "alpha beta gamma", "word")
+	words := rx.FindAllNamed(re, "alpha beta gamma", "word")
 	fmt.Println(words)
 	// Output: [alpha beta gamma]
 }
 
 func ExampleNamedGroups() {
 	re := regexp.MustCompile(`(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})`)
-	groups := NamedGroups(re, "Date: 2025-10-04")
+	groups := rx.NamedGroups(re, "Date: 2025-10-04")
 
 	// Note: map iteration order is not guaranteed, so we print sorted
 	keys := []string{"year", "month", "day"}
@@ -258,7 +259,7 @@ func TestAllNamedGroups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			got := AllNamedGroups(re, tt.target)
+			got := rx.AllNamedGroups(re, tt.target)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AllNamedGroups() = %v, want %v", got, tt.want)
 			}
@@ -268,7 +269,7 @@ func TestAllNamedGroups(t *testing.T) {
 
 func ExampleAllNamedGroups() {
 	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
-	allGroups := AllNamedGroups(re, "one two three")
+	allGroups := rx.AllNamedGroups(re, "one two three")
 
 	fmt.Printf("word: %v\n", allGroups["word"])
 	// Output: word: [one two three]
@@ -342,7 +343,7 @@ func TestReplace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			got := Replace(re, tt.target, tt.repl)
+			got := rx.Replace(re, tt.target, tt.repl)
 			if got != tt.want {
 				t.Errorf("Replace = %q, want %q", got, tt.want)
 			}
@@ -352,7 +353,7 @@ func TestReplace(t *testing.T) {
 
 func ExampleReplace() {
 	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
-	out := Replace(re, "alice@example.com bob@other.org", map[string]string{
+	out := rx.Replace(re, "alice@example.com bob@other.org", map[string]string{
 		"domain": "redacted",
 	})
 	fmt.Println(out)
@@ -363,25 +364,25 @@ func TestValidate(t *testing.T) {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 
 	t.Run("all declared returns nil", func(t *testing.T) {
-		if err := Validate(re, "name", "age"); err != nil {
+		if err := rx.Validate(re, "name", "age"); err != nil {
 			t.Errorf("Validate returned %v, want nil", err)
 		}
 	})
 
 	t.Run("subset of declared returns nil", func(t *testing.T) {
-		if err := Validate(re, "name"); err != nil {
+		if err := rx.Validate(re, "name"); err != nil {
 			t.Errorf("Validate returned %v, want nil", err)
 		}
 	})
 
 	t.Run("empty required returns nil", func(t *testing.T) {
-		if err := Validate(re); err != nil {
+		if err := rx.Validate(re); err != nil {
 			t.Errorf("Validate returned %v, want nil", err)
 		}
 	})
 
 	t.Run("single missing reports it", func(t *testing.T) {
-		err := Validate(re, "name", "ssn")
+		err := rx.Validate(re, "name", "ssn")
 		if err == nil {
 			t.Fatal("Validate returned nil, want error")
 		}
@@ -392,7 +393,7 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("multiple missing preserves request order", func(t *testing.T) {
-		err := Validate(re, "ssn", "age", "email", "name", "phone")
+		err := rx.Validate(re, "ssn", "age", "email", "name", "phone")
 		if err == nil {
 			t.Fatal("Validate returned nil, want error")
 		}
@@ -404,7 +405,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("regex with no named groups, all required missing", func(t *testing.T) {
 		bare := regexp.MustCompile(`\w+`)
-		err := Validate(bare, "name")
+		err := rx.Validate(bare, "name")
 		if err == nil {
 			t.Fatal("Validate returned nil, want error")
 		}
@@ -415,7 +416,7 @@ func TestValidate(t *testing.T) {
 // used by TestUnmarshalRegexUnmarshaler.
 func ExampleValidate() {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-	if err := Validate(re, "name", "age", "ssn"); err != nil {
+	if err := rx.Validate(re, "name", "age", "ssn"); err != nil {
 		fmt.Println(err)
 	}
 	// Output: regextra.Validate: missing named groups: ssn
@@ -442,12 +443,12 @@ func FuzzFindNamed(f *testing.F) {
 	re := regexp.MustCompile(`(?P<word>\S+)\s+(?P<num>\d+)`)
 	f.Fuzz(func(t *testing.T, target string) {
 		// Should not panic for any input.
-		got, ok := FindNamed(re, target, "word")
+		got, ok := rx.FindNamed(re, target, "word")
 		if !ok && got != "" {
 			t.Fatalf("FindNamed contract violated: ok=false but got=%q (want empty)", got)
 		}
 		// Group name that doesn't exist must always return ("", false).
-		miss, missOk := FindNamed(re, target, "definitelyNotThere")
+		miss, missOk := rx.FindNamed(re, target, "definitelyNotThere")
 		if miss != "" || missOk {
 			t.Fatalf("missing group name should return (\"\", false), got (%q, %v)", miss, missOk)
 		}
@@ -466,7 +467,7 @@ func FuzzNamedGroups(f *testing.F) {
 	declared := map[string]bool{"word": true, "num": true}
 
 	f.Fuzz(func(t *testing.T, target string) {
-		groups := NamedGroups(re, target)
+		groups := rx.NamedGroups(re, target)
 		if groups == nil {
 			t.Fatalf("NamedGroups returned nil; contract requires non-nil map")
 		}

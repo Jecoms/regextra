@@ -1,6 +1,7 @@
-package regextra
+package regextra_test
 
 import (
+	rx "github.com/jecoms/regextra"
 	"regexp"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ var benchFindRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 func BenchmarkFindNamed(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = FindNamed(benchFindRe, "Alice is 30", "name")
+		_, _ = rx.FindNamed(benchFindRe, "Alice is 30", "name")
 	}
 }
 
@@ -38,7 +39,7 @@ func BenchmarkFindNamed(b *testing.B) {
 func BenchmarkNamedGroups(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = NamedGroups(benchFindRe, "Alice is 30")
+		_ = rx.NamedGroups(benchFindRe, "Alice is 30")
 	}
 }
 
@@ -49,7 +50,7 @@ func BenchmarkFindAllNamed(b *testing.B) {
 	target := "alpha beta gamma delta epsilon zeta eta theta"
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = FindAllNamed(re, target, "word")
+		_ = rx.FindAllNamed(re, target, "word")
 	}
 }
 
@@ -64,7 +65,7 @@ func BenchmarkReplace(b *testing.B) {
 	repl := map[string]string{"domain": "redacted"}
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = Replace(re, target, repl)
+		_ = rx.Replace(re, target, repl)
 	}
 }
 
@@ -92,7 +93,7 @@ func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var s benchSimple
-		if err := Unmarshal(benchSimpleRe, target, &s); err != nil {
+		if err := rx.Unmarshal(benchSimpleRe, target, &s); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -100,7 +101,7 @@ func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 
 // benchSimpleDecoder is the same struct decoded via a precompiled Decoder.
 // Compare against BenchmarkUnmarshal_simpleStruct to see the v0.5.0 win.
-var benchSimpleDecoder = MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
+var benchSimpleDecoder = rx.MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
 
 // BenchmarkDecoder_simpleStruct.One measures the same shape as
 // BenchmarkUnmarshal_simpleStruct via a precompiled Decoder. Both reuse
@@ -137,7 +138,7 @@ func BenchmarkUnmarshal_pointerFields(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var p benchPointers
-		if err := Unmarshal(re, target, &p); err != nil {
+		if err := rx.Unmarshal(re, target, &p); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -166,7 +167,7 @@ func BenchmarkUnmarshal_timeFields(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var t benchTime
-		if err := Unmarshal(benchTimeRe, target, &t); err != nil {
+		if err := rx.Unmarshal(benchTimeRe, target, &t); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -216,7 +217,7 @@ func BenchmarkUnmarshal_customUnmarshaler(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var c benchCustom
-		if err := Unmarshal(benchCustomRe, target, &c); err != nil {
+		if err := rx.Unmarshal(benchCustomRe, target, &c); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -242,7 +243,7 @@ func BenchmarkUnmarshalAll_logLines(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var lines []line
-		if err := UnmarshalAll(re, target, &lines); err != nil {
+		if err := rx.UnmarshalAll(re, target, &lines); err != nil {
 			b.Fatal(err)
 		}
 	}
