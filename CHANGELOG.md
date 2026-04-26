@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-26
+
 ### Added
-- `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md` and `.github/PULL_REQUEST_TEMPLATE.md` so contributors and AI agents land on prompts that ask for the information maintainers need (Go version, regex pattern, expected vs actual; use case + proposed API; CHANGELOG + test plan).
-- `.github/ISSUE_TEMPLATE/config.yml` routes open-ended questions to GitHub Discussions and disables blank issues.
+- Issue and pull request templates: `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md` plus `.github/PULL_REQUEST_TEMPLATE.md`. Issue templates ask for the regex pattern, input string, expected vs actual, and Go / regextra / OS versions; PR template prompts for type-of-change, the CHANGELOG entry, and a test plan. `.github/ISSUE_TEMPLATE/config.yml` routes open-ended questions to GitHub Discussions and disables blank issues.
+
+### Security
+- New CodeQL workflow (`.github/workflows/codeql.yml`) — runs Go static analysis on every PR, push to `main`, and weekly on Monday 09:00 UTC. Findings surface in the Security tab.
+- New govulncheck workflow (`.github/workflows/govulncheck.yml`) — installs `golang.org/x/vuln/cmd/govulncheck` and scans on every PR, push to `main`, and weekly. Catches stdlib + transitive-dep CVEs.
+
+### Changed
+- CI: enforce 85% coverage floor on the `test` job. The job now parses `go tool cover -func=coverage.txt` and fails when total coverage falls below the threshold. Codecov upload is unaffected.
+- CI: validate every PR title against Conventional Commits. Allowed types: `feat`, `fix`, `chore`, `ci`, `docs`, `refactor`, `test`, `perf`, `build`, `revert`, `style`. Squash-merge turns the PR title into the commit subject, so this is the gate that matters.
+- CI: auto-merge Dependabot PRs for the safe class — all `github-actions` ecosystem bumps and `gomod` `direct:development` patch/minor bumps. Production direct deps and major bumps still require human review.
+
+### Dependencies
+- Bumped `actions/checkout` from 5.0.0 to 6.0.2 (Dependabot #28).
 
 ## [0.3.0] - 2025-10-06
 
