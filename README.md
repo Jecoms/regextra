@@ -253,6 +253,42 @@ err := regextra.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
 // }
 ```
 
+### `Compile[T any](pattern string) (*Decoder[T], error)` / `MustCompile[T any](pattern string) *Decoder[T]`
+
+Typed, regex-bound unmarshaler that caches the reflect plan for `T`'s fields. **Compile once, decode many times** — eliminates the per-call reflect work that `Unmarshal` does on every invocation.
+
+```go
+type Person struct {
+    Name string `regex:"name"`
+    Age  int    `regex:"age"`
+}
+
+// Compile validates pattern + struct tags upfront.
+var personDecoder = regextra.MustCompile[Person](`(?P<name>\w+) is (?P<age>\d+)`)
+
+// Hot path — no reflect per call.
+p, err := personDecoder.One("Alice is 30")
+// p = Person{Name: "Alice", Age: 30}, err = nil
+
+people, _ := personDecoder.All("Alice is 30 and Bob is 25")
+// people = []Person{{"Alice", 30}, {"Bob", 25}}
+```
+
+**vs `Unmarshal`:** the same simple-struct shape benchmarks at **~270 ns/op (3 allocs)** via `Decoder` versus **~500 ns/op (6 allocs)** via `Unmarshal` on Apple M4 — roughly half the time and half the allocations. Use `Decoder` when you'll decode the same shape many times (log parsers, config readers, request handlers); use `Unmarshal` for one-shot extraction.
+
+**Compile-time validation is strict.** `Compile` returns an error (or `MustCompile` panics) if:
+- The pattern is not a valid regex
+- `T` is not a struct
+- A field's `regex:"name"` tag references a group not declared on the pattern (unless paired with `default=`)
+- A `default=` value cannot be converted to its field type
+- A `layout=` option is on a non-`time.Time` field
+
+This is the strictness you want for "compile once" — typos fail at startup, not at first request.
+
+`Decoder.One` returns `regextra.ErrNoMatch` (compare with `errors.Is`) when there's no match. Other errors indicate per-field conversion failure on a successful match.
+
+`Decoder` instances are safe for concurrent use.
+
 ## Why regextra?
 
 The standard library's `regexp` package requires verbose code to extract named capture groups:

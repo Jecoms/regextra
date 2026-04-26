@@ -86,13 +86,32 @@ type benchSimple struct {
 var benchSimpleRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
 
 // BenchmarkUnmarshal_simpleStruct measures the kind-switch path with no fast
-// paths hit. Establishes the baseline that v0.5.0's Decoder[T] should beat.
+// paths hit. Establishes the baseline that Decoder[T] should beat.
 func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 	target := "Alice is 30 true"
 	b.ReportAllocs()
 	for b.Loop() {
 		var s benchSimple
 		if err := Unmarshal(benchSimpleRe, target, &s); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// benchSimpleDecoder is the same struct decoded via a precompiled Decoder.
+// Compare against BenchmarkUnmarshal_simpleStruct to see the v0.5.0 win.
+var benchSimpleDecoder = MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
+
+// BenchmarkDecoder_simpleStruct.One measures the same shape as
+// BenchmarkUnmarshal_simpleStruct via a precompiled Decoder. Both reuse
+// setFieldValue, but the Decoder skips the per-call SubexpNames loop and
+// per-field parseFieldTag work — that's where the win comes from.
+func BenchmarkDecoder_simpleStruct(b *testing.B) {
+	target := "Alice is 30 true"
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := benchSimpleDecoder.One(target)
+		if err != nil {
 			b.Fatal(err)
 		}
 	}
