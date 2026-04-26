@@ -171,6 +171,22 @@ err := regextra.Unmarshal(re, "alice@example.com", &email)
 // email.Username = "alice", email.Domain = "example.com"
 ```
 
+**Tag options:**
+
+The `regex:"..."` tag accepts comma-separated `key=value` options after the group name:
+
+| Option | Applies to | Effect |
+|---|---|---|
+| `default=<value>` | Any field type | Substituted when the named group is not declared on the regex or its match is empty. The default goes through the same type conversion as a real match. |
+| `layout=<go-time-layout>` | `time.Time` only | Use the supplied [time.Parse layout](https://pkg.go.dev/time#Parse) exclusively, instead of the default fallback list. Lets you pin the parser to (e.g.) Apache, syslog, or any other non-RFC3339 timestamp shape. |
+
+```go
+type LogLine struct {
+    TS    time.Time `regex:"ts,layout=02/Jan/2006:15:04:05 -0700"`
+    Level string    `regex:"level,default=info"`
+}
+```
+
 ### `RegexUnmarshaler` interface
 
 Mirror of `encoding.TextUnmarshaler` for regextra's unmarshal path. When a destination field's pointer type satisfies this interface, `Unmarshal` (and `UnmarshalAll`) call `UnmarshalRegex` with the matched group value instead of running the built-in string/int/uint/float/bool conversion.

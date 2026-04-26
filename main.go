@@ -403,17 +403,29 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 			continue
 		}
 
-		// Determine the capture group name for this field
-		groupName := getGroupName(fieldType)
+		// Determine the capture group name and any per-field options for this field
+		groupName, opts := parseFieldTag(fieldType)
 
 		// Try to find the value for this field
 		value, found := findGroupValue(groupName, fieldType.Name, groupValues)
+
+		// `default=` substitutes when the field has no match OR the match is
+		// empty. Empty-match overlap is intentional: regexp returns "" both
+		// for non-participating optional groups and for groups that matched a
+		// zero-length span; treating both as "no useful value" matches caller
+		// expectations.
+		if !found || value == "" {
+			if def, ok := opts["default"]; ok {
+				value = def
+				found = true
+			}
+		}
 		if !found {
 			continue
 		}
 
 		// Set the field value with type conversion
-		if err := setFieldValue(field, value); err != nil {
+		if err := setFieldValue(field, value, opts); err != nil {
 			return fmt.Errorf("regextra: failed to set field %s: %w", fieldType.Name, err)
 		}
 	}
@@ -421,13 +433,55 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 	return nil
 }
 
-// getGroupName extracts the group name from the struct tag, or returns empty string
+// getGroupName extracts the group name from the struct tag, or returns empty string.
+// Thin wrapper around parseFieldTag for callers that don't need the options map.
 func getGroupName(field reflect.StructField) string {
+	name, _ := parseFieldTag(field)
+	return name
+}
+
+// parseFieldTag parses a `regex:"name,key=value,key=value"` struct tag into
+// the group name and an options map. The grammar is intentionally
+// json/encoding-style: the first comma-separated piece is the name; each
+// subsequent piece is a `key=value` pair (lone tokens without `=` are ignored,
+// not promoted to a flag, since regextra's option set is small enough that
+// flags-with-no-value haven't been needed).
+//
+// Currently recognized option keys (case-sensitive):
+//   - default — value substituted when the named group is not declared on the
+//     regex or its match is empty.
+//   - layout  — for time.Time fields only: a single time.Parse layout used
+//     instead of the default fallback list.
+//
+// Unknown keys are preserved in the returned map so future option additions
+// don't need to touch the parser. `regex:""` and `regex:"-"` both signal
+// "no name", returning "" and a nil options map.
+func parseFieldTag(field reflect.StructField) (name string, opts map[string]string) {
 	tag := field.Tag.Get("regex")
 	if tag == "" || tag == "-" {
-		return ""
+		return "", nil
 	}
-	return tag
+	parts := strings.Split(tag, ",")
+	name = strings.TrimSpace(parts[0])
+	if len(parts) == 1 {
+		return name, nil
+	}
+	opts = make(map[string]string, len(parts)-1)
+	for _, p := range parts[1:] {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(p, "=")
+		if !ok {
+			// Lone token without '='. Reserved for future flag-style options;
+			// silently ignored today rather than rejected to keep the parser
+			// forward-compatible.
+			continue
+		}
+		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	return name, opts
 }
 
 // findGroupValue searches for the value in the group values map
@@ -485,8 +539,10 @@ type RegexUnmarshaler interface {
 // the implements-check on every field doesn't pay the reflect.TypeOf cost.
 var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
 
-// setFieldValue sets the field value with appropriate type conversion
-func setFieldValue(field reflect.Value, value string) error {
+// setFieldValue sets the field value with appropriate type conversion.
+// `opts` carries per-field tag options parsed from `regex:"name,key=value,..."`.
+// Currently consulted: `layout` (for time.Time fields). Pass nil for no opts.
+func setFieldValue(field reflect.Value, value string, opts map[string]string) error {
 	// 0. Pointer fields: allocate the pointee if nil, then either dispatch
 	//    on the pointer's own RegexUnmarshaler (the common case for
 	//    pointer-receiver methods) or recurse into the pointee for the
@@ -500,7 +556,7 @@ func setFieldValue(field reflect.Value, value string) error {
 		if u, ok := field.Interface().(RegexUnmarshaler); ok {
 			return u.UnmarshalRegex(value)
 		}
-		return setFieldValue(field.Elem(), value)
+		return setFieldValue(field.Elem(), value, opts)
 	}
 
 	// 1. RegexUnmarshaler comes first for non-pointer fields — caller-defined
@@ -525,9 +581,20 @@ func setFieldValue(field reflect.Value, value string) error {
 	//    Kind is reflect.Int64.
 	switch field.Type() {
 	case timeTimeType:
-		t, err := parseTime(value)
-		if err != nil {
-			return fmt.Errorf("cannot convert %q to time.Time: %w", value, err)
+		var t time.Time
+		var err error
+		if layout, ok := opts["layout"]; ok && layout != "" {
+			// Caller-supplied layout wins exclusively — no fallback list,
+			// because if you specified a layout you want exactly that one.
+			t, err = time.Parse(layout, value)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to time.Time using layout %q: %w", value, layout, err)
+			}
+		} else {
+			t, err = parseTime(value)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to time.Time: %w", value, err)
+			}
 		}
 		field.Set(reflect.ValueOf(t))
 		return nil
