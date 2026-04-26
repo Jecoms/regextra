@@ -359,6 +359,66 @@ func ExampleReplace() {
 	// Output: alice@redacted bob@redacted
 }
 
+func TestValidate(t *testing.T) {
+	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+
+	t.Run("all declared returns nil", func(t *testing.T) {
+		if err := Validate(re, "name", "age"); err != nil {
+			t.Errorf("Validate returned %v, want nil", err)
+		}
+	})
+
+	t.Run("subset of declared returns nil", func(t *testing.T) {
+		if err := Validate(re, "name"); err != nil {
+			t.Errorf("Validate returned %v, want nil", err)
+		}
+	})
+
+	t.Run("empty required returns nil", func(t *testing.T) {
+		if err := Validate(re); err != nil {
+			t.Errorf("Validate returned %v, want nil", err)
+		}
+	})
+
+	t.Run("single missing reports it", func(t *testing.T) {
+		err := Validate(re, "name", "ssn")
+		if err == nil {
+			t.Fatal("Validate returned nil, want error")
+		}
+		want := "regextra.Validate: missing named groups: ssn"
+		if err.Error() != want {
+			t.Errorf("Validate error = %q, want %q", err.Error(), want)
+		}
+	})
+
+	t.Run("multiple missing preserves request order", func(t *testing.T) {
+		err := Validate(re, "ssn", "age", "email", "name", "phone")
+		if err == nil {
+			t.Fatal("Validate returned nil, want error")
+		}
+		want := "regextra.Validate: missing named groups: ssn, email, phone"
+		if err.Error() != want {
+			t.Errorf("Validate error = %q, want %q", err.Error(), want)
+		}
+	})
+
+	t.Run("regex with no named groups, all required missing", func(t *testing.T) {
+		bare := regexp.MustCompile(`\w+`)
+		err := Validate(bare, "name")
+		if err == nil {
+			t.Fatal("Validate returned nil, want error")
+		}
+	})
+}
+
+func ExampleValidate() {
+	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+	if err := Validate(re, "name", "age", "ssn"); err != nil {
+		fmt.Println(err)
+	}
+	// Output: regextra.Validate: missing named groups: ssn
+}
+
 func TestUnmarshal(t *testing.T) {
 	t.Run("basic string fields", func(t *testing.T) {
 		type Person struct {

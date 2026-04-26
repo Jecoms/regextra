@@ -194,6 +194,39 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 	return b.String()
 }
 
+// Validate returns an error listing every required group name that is not
+// declared on re. Useful for init-time assertions in services that compile
+// patterns once: catch typos at startup rather than at the first
+// (mis-)matched request.
+//
+// Returns nil when every required name is declared. The error message lists
+// the missing names in the order they were passed.
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+//	if err := regextra.Validate(re, "name", "age", "missing"); err != nil {
+//	    // err: regextra.Validate: missing named groups: missing
+//	}
+func Validate(re *regexp.Regexp, required ...string) error {
+	declared := make(map[string]struct{}, len(re.SubexpNames()))
+	for _, n := range re.SubexpNames() {
+		if n != "" {
+			declared[n] = struct{}{}
+		}
+	}
+	var missing []string
+	for _, name := range required {
+		if _, ok := declared[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("regextra.Validate: missing named groups: %s", strings.Join(missing, ", "))
+}
+
 // Unmarshal extracts named capture groups from the target string and assigns them
 // to the corresponding fields in the provided struct pointer.
 //
