@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFindNamed(t *testing.T) {
@@ -505,6 +506,110 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 	})
 }
 
+func TestUnmarshalTimeTypes(t *testing.T) {
+	t.Run("time.Time RFC3339", func(t *testing.T) {
+		type Event struct {
+			TS time.Time `regex:"ts"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var ev Event
+		if err := Unmarshal(re, "2026-04-26T12:34:56Z", &ev); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		want, _ := time.Parse(time.RFC3339, "2026-04-26T12:34:56Z")
+		if !ev.TS.Equal(want) {
+			t.Errorf("TS = %v, want %v", ev.TS, want)
+		}
+	})
+
+	t.Run("time.Time DateTime fallback", func(t *testing.T) {
+		type Event struct {
+			TS time.Time `regex:"ts"`
+		}
+		re := regexp.MustCompile(`(?P<ts>.+)`)
+		var ev Event
+		if err := Unmarshal(re, "2026-04-26 12:34:56", &ev); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if ev.TS.Year() != 2026 || ev.TS.Month() != time.April || ev.TS.Day() != 26 {
+			t.Errorf("TS = %v, want 2026-04-26 ...", ev.TS)
+		}
+	})
+
+	t.Run("time.Time DateOnly fallback", func(t *testing.T) {
+		type Event struct {
+			TS time.Time `regex:"ts"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var ev Event
+		if err := Unmarshal(re, "2026-04-26", &ev); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if ev.TS.Year() != 2026 {
+			t.Errorf("Year = %d, want 2026", ev.TS.Year())
+		}
+	})
+
+	t.Run("time.Time unparseable returns error", func(t *testing.T) {
+		type Event struct {
+			TS time.Time `regex:"ts"`
+		}
+		re := regexp.MustCompile(`(?P<ts>.+)`)
+		var ev Event
+		err := Unmarshal(re, "definitely not a time", &ev)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error")
+		}
+		if !strings.Contains(err.Error(), "cannot convert") || !strings.Contains(err.Error(), "time.Time") {
+			t.Errorf("error = %q, want it to mention time.Time conversion failure", err.Error())
+		}
+	})
+
+	t.Run("time.Duration", func(t *testing.T) {
+		type Span struct {
+			D time.Duration `regex:"d"`
+		}
+		re := regexp.MustCompile(`(?P<d>\S+)`)
+		var sp Span
+		if err := Unmarshal(re, "1h30m", &sp); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		want := 90 * time.Minute
+		if sp.D != want {
+			t.Errorf("D = %v, want %v", sp.D, want)
+		}
+	})
+
+	t.Run("time.Duration unparseable returns error", func(t *testing.T) {
+		type Span struct {
+			D time.Duration `regex:"d"`
+		}
+		re := regexp.MustCompile(`(?P<d>\S+)`)
+		var sp Span
+		err := Unmarshal(re, "notaduration", &sp)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error")
+		}
+		if !strings.Contains(err.Error(), "cannot convert") || !strings.Contains(err.Error(), "time.Duration") {
+			t.Errorf("error = %q, want it to mention time.Duration conversion failure", err.Error())
+		}
+	})
+
+	t.Run("time.Duration is matched by Type, not by Int64 kind", func(t *testing.T) {
+		// time.Duration's underlying type is int64. Without the type-based
+		// match before the kind switch, "1h30m" would fall into reflect.Int64
+		// and strconv.ParseInt would reject it.
+		type Span struct {
+			D time.Duration `regex:"d"`
+		}
+		re := regexp.MustCompile(`(?P<d>\S+)`)
+		var sp Span
+		if err := Unmarshal(re, "5s", &sp); err != nil {
+			t.Fatalf("Unmarshal returned %v — Type-based match did not pre-empt Int64 kind", err)
+		}
+	})
+}
+
 func ExampleValidate() {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 	if err := Validate(re, "name", "age", "ssn"); err != nil {
@@ -529,6 +634,18 @@ func ExampleRegexUnmarshaler() {
 	_ = High
 	fmt.Println("see TestUnmarshalRegexUnmarshaler for a runnable demo")
 	// Output: see TestUnmarshalRegexUnmarshaler for a runnable demo
+}
+
+func ExampleUnmarshal_timeTypes() {
+	type Event struct {
+		Started time.Time     `regex:"start"`
+		Took    time.Duration `regex:"took"`
+	}
+	re := regexp.MustCompile(`(?P<start>\S+)\s+\((?P<took>\S+)\)`)
+	var ev Event
+	_ = Unmarshal(re, "2026-04-26T12:34:56Z (1h30m)", &ev)
+	fmt.Printf("%s for %s\n", ev.Started.Format(time.RFC3339), ev.Took)
+	// Output: 2026-04-26T12:34:56Z for 1h30m0s
 }
 
 func TestUnmarshal(t *testing.T) {

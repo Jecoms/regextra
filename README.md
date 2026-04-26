@@ -135,7 +135,7 @@ if err := regextra.Validate(re, "name", "age", "ssn"); err != nil {
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
 
-**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`
+**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`, `time.Time`, `time.Duration`. For `time.Time`, several common layouts are tried (RFC3339, RFC3339Nano, `2006-01-02 15:04:05`, `2006-01-02`, `15:04:05`); `time.Duration` is parsed via `time.ParseDuration`. For caller-defined types, implement [`RegexUnmarshaler`](#regexunmarshaler-interface).
 
 **Field mapping priority:**
 1. Struct tag `regex:"groupname"` if provided (highest priority)

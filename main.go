@@ -21,7 +21,44 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// Cached reflect.Type values for the time types we special-case.
+// Comparing reflect.Type by equality is faster than rebuilding via
+// reflect.TypeOf on every field, and the resulting code is also clearer.
+var (
+	timeTimeType     = reflect.TypeOf(time.Time{})
+	timeDurationType = reflect.TypeOf(time.Duration(0))
+)
+
+// timeLayouts is the ordered set of layouts tried when parsing a string
+// into a time.Time field. The first layout that yields a non-error wins.
+// RFC3339 (and its nano variant) come first because they're the most
+// common in logs and APIs; the date / datetime / time-only forms cover
+// human-readable inputs without time zones.
+var timeLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	time.DateTime, // "2006-01-02 15:04:05"
+	time.DateOnly, // "2006-01-02"
+	time.TimeOnly, // "15:04:05"
+}
+
+// parseTime tries each layout in timeLayouts and returns the first success.
+func parseTime(value string) (time.Time, error) {
+	var firstErr error
+	for _, layout := range timeLayouts {
+		t, err := time.Parse(layout, value)
+		if err == nil {
+			return t, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return time.Time{}, firstErr
+}
 
 // FindNamed returns the value of the named capture group in the target string.
 // It returns the matched value and true if found, or empty string and false if not found.
@@ -450,9 +487,10 @@ var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
 
 // setFieldValue sets the field value with appropriate type conversion
 func setFieldValue(field reflect.Value, value string) error {
-	// If the field (or its addressable pointer) satisfies RegexUnmarshaler,
-	// hand off to the caller-defined conversion. Checked first so the
-	// built-in conversions can't pre-empt a more specific user type.
+	// 1. RegexUnmarshaler comes first — caller-defined conversions beat
+	//    everything, including the stdlib special-cases below. A type
+	//    `type MyTime time.Time` with its own UnmarshalRegex must NOT be
+	//    pre-empted by the time.Time fast path.
 	if field.CanAddr() {
 		if u, ok := field.Addr().Interface().(RegexUnmarshaler); ok {
 			return u.UnmarshalRegex(value)
@@ -463,6 +501,27 @@ func setFieldValue(field reflect.Value, value string) error {
 		if u, ok := field.Interface().(RegexUnmarshaler); ok {
 			return u.UnmarshalRegex(value)
 		}
+	}
+
+	// 2. time.Time and time.Duration. Stdlib types we can't extend with
+	//    RegexUnmarshaler, but they dominate real-world parsing needs. Caught
+	//    by Type before the Kind switch because time.Duration's underlying
+	//    Kind is reflect.Int64.
+	switch field.Type() {
+	case timeTimeType:
+		t, err := parseTime(value)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to time.Time: %w", value, err)
+		}
+		field.Set(reflect.ValueOf(t))
+		return nil
+	case timeDurationType:
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("cannot convert %q to time.Duration: %w", value, err)
+		}
+		field.Set(reflect.ValueOf(d))
+		return nil
 	}
 
 	switch field.Kind() {
