@@ -648,6 +648,158 @@ func ExampleUnmarshal_timeTypes() {
 	// Output: 2026-04-26T12:34:56Z for 1h30m0s
 }
 
+func TestUnmarshalPointerFields(t *testing.T) {
+	t.Run("*string allocated and set", func(t *testing.T) {
+		type Holder struct {
+			S *string `regex:"s"`
+		}
+		re := regexp.MustCompile(`(?P<s>\w+)`)
+		var h Holder
+		if err := Unmarshal(re, "hello", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.S == nil {
+			t.Fatal("S is nil; pointer was not allocated")
+		}
+		if *h.S != "hello" {
+			t.Errorf("*S = %q, want %q", *h.S, "hello")
+		}
+	})
+
+	t.Run("*int allocated and set", func(t *testing.T) {
+		type Holder struct {
+			N *int `regex:"n"`
+		}
+		re := regexp.MustCompile(`(?P<n>\d+)`)
+		var h Holder
+		if err := Unmarshal(re, "42", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.N == nil || *h.N != 42 {
+			t.Errorf("*N = %v, want 42", h.N)
+		}
+	})
+
+	t.Run("*float64 allocated and set", func(t *testing.T) {
+		type Holder struct {
+			F *float64 `regex:"f"`
+		}
+		re := regexp.MustCompile(`(?P<f>\S+)`)
+		var h Holder
+		if err := Unmarshal(re, "3.14", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.F == nil || *h.F != 3.14 {
+			t.Errorf("*F = %v, want 3.14", h.F)
+		}
+	})
+
+	t.Run("*bool allocated and set", func(t *testing.T) {
+		type Holder struct {
+			B *bool `regex:"b"`
+		}
+		re := regexp.MustCompile(`(?P<b>\S+)`)
+		var h Holder
+		if err := Unmarshal(re, "true", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.B == nil || *h.B != true {
+			t.Errorf("*B = %v, want true", h.B)
+		}
+	})
+
+	t.Run("*time.Time allocated and set via the time-types path", func(t *testing.T) {
+		type Holder struct {
+			TS *time.Time `regex:"ts"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var h Holder
+		if err := Unmarshal(re, "2026-04-26T12:34:56Z", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.TS == nil {
+			t.Fatal("TS is nil; pointer was not allocated")
+		}
+		if h.TS.Year() != 2026 {
+			t.Errorf("TS.Year() = %d, want 2026", h.TS.Year())
+		}
+	})
+
+	t.Run("*time.Duration allocated and set", func(t *testing.T) {
+		type Holder struct {
+			D *time.Duration `regex:"d"`
+		}
+		re := regexp.MustCompile(`(?P<d>\S+)`)
+		var h Holder
+		if err := Unmarshal(re, "5s", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.D == nil || *h.D != 5*time.Second {
+			t.Errorf("*D = %v, want 5s", h.D)
+		}
+	})
+
+	t.Run("*RegexUnmarshaler dispatched on the pointer's own method", func(t *testing.T) {
+		type Holder struct {
+			S *status `regex:"s"`
+		}
+		re := regexp.MustCompile(`\[(?P<s>\w+)\]`)
+		var h Holder
+		if err := Unmarshal(re, "[open]", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.S == nil || *h.S != statusOpen {
+			t.Errorf("*S = %v, want statusOpen", h.S)
+		}
+	})
+
+	t.Run("non-nil pointer is not re-allocated; existing pointee overwritten", func(t *testing.T) {
+		type Holder struct {
+			N *int `regex:"n"`
+		}
+		re := regexp.MustCompile(`(?P<n>\d+)`)
+		preallocated := 999
+		h := Holder{N: &preallocated}
+		original := h.N
+		if err := Unmarshal(re, "42", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.N != original {
+			t.Errorf("pointer identity changed; expected the existing pointer to be reused")
+		}
+		if *h.N != 42 {
+			t.Errorf("*N = %d, want 42 (pointee should be overwritten)", *h.N)
+		}
+	})
+
+	t.Run("conversion error on pointer field is returned without partial state", func(t *testing.T) {
+		type Holder struct {
+			N *int `regex:"n"`
+		}
+		re := regexp.MustCompile(`(?P<n>\S+)`)
+		var h Holder
+		err := Unmarshal(re, "notanumber", &h)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error")
+		}
+		if !strings.Contains(err.Error(), "cannot convert") {
+			t.Errorf("error = %q, want it to mention conversion failure", err.Error())
+		}
+	})
+}
+
+func ExampleUnmarshal_pointerFields() {
+	type Result struct {
+		Name *string `regex:"name"`
+		Age  *int    `regex:"age"`
+	}
+	re := regexp.MustCompile(`(?P<name>\w+)\s+is\s+(?P<age>\d+)`)
+	var r Result
+	_ = Unmarshal(re, "Alice is 30", &r)
+	fmt.Printf("%s, %d\n", *r.Name, *r.Age)
+	// Output: Alice, 30
+}
+
 func TestUnmarshal(t *testing.T) {
 	t.Run("basic string fields", func(t *testing.T) {
 		type Person struct {
