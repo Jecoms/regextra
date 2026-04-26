@@ -119,6 +119,74 @@ func ExampleFindNamed() {
 	// Output: Alice: true
 }
 
+func TestFindAllNamed(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		group   string
+		want    []string
+	}{
+		{
+			name:    "multiple matches collects all values",
+			pattern: `(?P<word>\S+)`,
+			target:  "alpha beta gamma",
+			group:   "word",
+			want:    []string{"alpha", "beta", "gamma"},
+		},
+		{
+			name:    "two-group pattern, picks the requested group",
+			pattern: `(?P<key>\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2 c=3",
+			group:   "val",
+			want:    []string{"1", "2", "3"},
+		},
+		{
+			name:    "no matches returns empty slice (not nil)",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "all lowercase",
+			group:   "word",
+			want:    []string{},
+		},
+		{
+			name:    "undeclared group returns nil",
+			pattern: `(?P<word>\S+)`,
+			target:  "anything",
+			group:   "missing",
+			want:    nil,
+		},
+		{
+			name:    "empty target returns empty slice when group declared",
+			pattern: `(?P<word>\S+)`,
+			target:  "",
+			group:   "word",
+			want:    []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := FindAllNamed(re, tt.target, tt.group)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("FindAllNamed = %v, want nil", got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("FindAllNamed = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func ExampleFindAllNamed() {
+	re := regexp.MustCompile(`(?P<word>\S+)`)
+	words := FindAllNamed(re, "alpha beta gamma", "word")
+	fmt.Println(words)
+	// Output: [alpha beta gamma]
+}
+
 func ExampleNamedGroups() {
 	re := regexp.MustCompile(`(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})`)
 	groups := NamedGroups(re, "Date: 2025-10-04")

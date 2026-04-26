@@ -44,6 +44,36 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 	return matches[index], true
 }
 
+// FindAllNamed returns every value of the named capture group across all
+// matches of re in target. Returns nil if the group name is not declared on
+// the regex; an empty slice if the group is declared but the regex has no
+// matches.
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<word>\S+)`)
+//	words := regextra.FindAllNamed(re, "alpha beta gamma", "word")
+//	// words = []string{"alpha", "beta", "gamma"}
+//
+// For a single match, prefer [FindNamed] which returns (value, ok).
+// To collect every named group's values across all matches, use
+// [AllNamedGroups].
+func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
+	index := re.SubexpIndex(groupName)
+	if index == -1 {
+		return nil
+	}
+	matches := re.FindAllStringSubmatch(target, -1)
+	if len(matches) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m[index])
+	}
+	return out
+}
+
 // NamedGroups returns a map of all named capture groups and their matched values
 // from the target string. If no match is found, it returns an empty map.
 //
