@@ -1,0 +1,41 @@
+name: Commitlint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check Conventional Commit format
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          # Squash-merge uses the PR title as the commit subject.
+          # Required shape: <type>(<optional-scope>)!: <subject>
+          # Allowed types: feat, fix, chore, ci, docs, refactor, test, perf, build, revert, style
+          pattern='^(feat|fix|chore|ci|docs|refactor|test|perf|build|revert|style)(\([a-z0-9_./-]+\))?!?: .+'
+          if ! [[ "$PR_TITLE" =~ $pattern ]]; then
+            echo "::error::PR title does not match Conventional Commits."
+            echo
+            echo "Got:      $PR_TITLE"
+            echo "Expected: <type>(scope)?: <subject>"
+            echo "          where <type> is one of:"
+            echo "            feat | fix | chore | ci | docs | refactor | test | perf | build | revert | style"
+            echo
+            echo "Examples:"
+            echo "  feat: add FindAllNamed"
+            echo "  fix(unmarshal): handle nil destination"
+            echo "  chore(deps): bump actions/checkout"
+            exit 1
+          fi
+          echo "✓ PR title follows Conventional Commits."
