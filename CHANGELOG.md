@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-26
+
+### Added
+- Fuzz harnesses (`fuzz_test.go`) covering the public API surface: `FuzzFindNamed` and `FuzzNamedGroups` exercise the regex-resolution paths and contract; `FuzzUnmarshalInt`, `FuzzUnmarshalUint`, `FuzzUnmarshalFloat`, `FuzzUnmarshalBool` drive each `strconv`-backed branch of the Unmarshal type-conversion code with arbitrary inputs. Seed corpus covers stdlib edge cases (sign-prefixed, scientific notation, MAX/MIN bounds, NaN/Inf, locale-flavored bool variants, unicode, NUL bytes).
+
+### Changed
+- CI test matrix expanded from `['1.24']` to `['1.24', '1.25', '1.26']` so regressions on newer toolchains surface in CI without raising the consumer floor (`go.mod` stays at 1.24). `fail-fast: false` lets all three legs finish so triage shows which version broke first. Lint and vet jobs stay on 1.24.
+- CI runs each fuzz target for 10 seconds on the floor matrix leg (Go 1.24) — adds ~60 seconds to one job leg, doesn't multiply across the matrix. Seed corpus runs unconditionally on every leg via the regular `go test` step.
+
+### Fixed
+- `auto-tag.yml` now publishes the GitHub Release in the same job that pushes the tag, sidestepping the `GITHUB_TOKEN` cascade limitation that previously prevented `release.yml` from firing on automated tag pushes (every release since v0.3.0 had a tag but no Release until manual `gh release create`). The "Delete release branch" step is now best-effort: it checks `git ls-remote` first and prints an info line if the branch was already auto-deleted by the repo's merge-cleanup setting, instead of exiting non-zero.
+
+### Removed
+- `release.yml` workflow — its tag-listening / test-running / release-creation steps are now folded into `auto-tag.yml`.
+
 ## [0.3.1] - 2026-04-26
 
 ### Added
