@@ -648,6 +648,183 @@ func ExampleUnmarshal_timeTypes() {
 	// Output: 2026-04-26T12:34:56Z for 1h30m0s
 }
 
+func TestParseFieldTag(t *testing.T) {
+	type T struct {
+		A string `regex:"a"`
+		B string `regex:"b,default=fallback"`
+		C string `regex:"c,default=,layout=2006"`
+		D string `regex:"d,layout=2006-01-02"`
+		E string `regex:""`
+		F string `regex:"-"`
+		G string
+		H string `regex:"h,unknown=stuff,layout=Z"`
+	}
+	tt := reflect.TypeOf(T{})
+	cases := []struct {
+		fieldName string
+		wantName  string
+		wantOpts  map[string]string
+	}{
+		{"A", "a", nil},
+		{"B", "b", map[string]string{"default": "fallback"}},
+		{"C", "c", map[string]string{"default": "", "layout": "2006"}},
+		{"D", "d", map[string]string{"layout": "2006-01-02"}},
+		{"E", "", nil},
+		{"F", "", nil},
+		{"G", "", nil},
+		{"H", "h", map[string]string{"unknown": "stuff", "layout": "Z"}},
+	}
+	for _, c := range cases {
+		t.Run(c.fieldName, func(t *testing.T) {
+			f, _ := tt.FieldByName(c.fieldName)
+			gotName, gotOpts := parseFieldTag(f)
+			if gotName != c.wantName {
+				t.Errorf("name = %q, want %q", gotName, c.wantName)
+			}
+			if !reflect.DeepEqual(gotOpts, c.wantOpts) {
+				t.Errorf("opts = %v, want %v", gotOpts, c.wantOpts)
+			}
+		})
+	}
+}
+
+func TestUnmarshalDefault(t *testing.T) {
+	t.Run("default fills when group not declared", func(t *testing.T) {
+		type Person struct {
+			Name string `regex:"name"`
+			Role string `regex:"role,default=guest"`
+		}
+		const wantName = "Mallory"
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var p Person
+		if err := Unmarshal(re, wantName, &p); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if p.Name != wantName {
+			t.Errorf("Name = %q, want %q", p.Name, wantName)
+		}
+		if p.Role != "guest" {
+			t.Errorf("Role = %q, want guest (default)", p.Role)
+		}
+	})
+
+	t.Run("default fills when match is empty", func(t *testing.T) {
+		type Person struct {
+			Title string `regex:"title,default=N/A"`
+		}
+		// `title?` matches an optional letter — input below produces an empty
+		// match for the named group.
+		re := regexp.MustCompile(`^(?P<title>[A-Z]?)\.?$`)
+		var p Person
+		if err := Unmarshal(re, ".", &p); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if p.Title != "N/A" {
+			t.Errorf("Title = %q, want N/A (default for empty match)", p.Title)
+		}
+	})
+
+	t.Run("default does not override a non-empty match", func(t *testing.T) {
+		type Person struct {
+			Role string `regex:"role,default=guest"`
+		}
+		re := regexp.MustCompile(`(?P<role>\w+)`)
+		var p Person
+		if err := Unmarshal(re, "admin", &p); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if p.Role != "admin" {
+			t.Errorf("Role = %q, want admin (match wins over default)", p.Role)
+		}
+	})
+
+	t.Run("default goes through type conversion", func(t *testing.T) {
+		type Limits struct {
+			Max int `regex:"max,default=100"`
+		}
+		re := regexp.MustCompile(`(?P<other>\w+)`)
+		var l Limits
+		if err := Unmarshal(re, "ignored", &l); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if l.Max != 100 {
+			t.Errorf("Max = %d, want 100", l.Max)
+		}
+	})
+
+	t.Run("malformed default value surfaces a clear error", func(t *testing.T) {
+		type Limits struct {
+			Max int `regex:"max,default=notanumber"`
+		}
+		re := regexp.MustCompile(`(?P<other>\w+)`)
+		var l Limits
+		err := Unmarshal(re, "ignored", &l)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error from default conversion")
+		}
+		if !strings.Contains(err.Error(), "cannot convert") {
+			t.Errorf("error = %q, want it to mention conversion failure", err.Error())
+		}
+	})
+}
+
+func TestUnmarshalLayoutOverride(t *testing.T) {
+	t.Run("layout option parses Apache log time", func(t *testing.T) {
+		type Log struct {
+			TS time.Time `regex:"ts,layout=02/Jan/2006:15:04:05 -0700"`
+		}
+		re := regexp.MustCompile(`\[(?P<ts>[^\]]+)\]`)
+		var l Log
+		if err := Unmarshal(re, "[26/Apr/2026:12:34:56 -0500]", &l); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if l.TS.Year() != 2026 || l.TS.Month() != time.April || l.TS.Day() != 26 {
+			t.Errorf("TS = %v, want 2026-04-26 ...", l.TS)
+		}
+	})
+
+	t.Run("layout mismatch errors with layout in message", func(t *testing.T) {
+		type Log struct {
+			TS time.Time `regex:"ts,layout=2006-01-02"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var l Log
+		err := Unmarshal(re, "not-a-date", &l)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want error")
+		}
+		if !strings.Contains(err.Error(), "2006-01-02") {
+			t.Errorf("error = %q, want it to mention the layout", err.Error())
+		}
+	})
+
+	t.Run("layout option does NOT fall back to default list", func(t *testing.T) {
+		// Default fallback would parse "2026-04-26" via DateOnly. With layout
+		// pinned to RFC3339, this should error rather than succeed.
+		type Log struct {
+			TS time.Time `regex:"ts,layout=2006-01-02T15:04:05Z07:00"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var l Log
+		err := Unmarshal(re, "2026-04-26", &l)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil; layout override should not fall back to DateOnly")
+		}
+	})
+}
+
+func ExampleUnmarshal_defaultAndLayout() {
+	type LogLine struct {
+		TS    time.Time `regex:"ts,layout=02/Jan/2006:15:04:05 -0700"`
+		Level string    `regex:"level,default=info"`
+	}
+	re := regexp.MustCompile(`\[(?P<ts>[^\]]+)\]\s*(?P<other>.*)`)
+	var l LogLine
+	_ = Unmarshal(re, "[26/Apr/2026:12:34:56 -0500] something happened", &l)
+	fmt.Printf("%s @ %s\n", l.Level, l.TS.Format("2006-01-02"))
+	// Output: info @ 2026-04-26
+}
+
 func TestUnmarshalPointerFields(t *testing.T) {
 	t.Run("*string allocated and set", func(t *testing.T) {
 		type Holder struct {
