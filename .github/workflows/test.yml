@@ -36,6 +36,19 @@ jobs:
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+    # Fuzz only on the floor toolchain — running on every matrix leg
+    # multiplies CI minutes without proportional coverage gain.
+    # Each target gets a 10s budget; the seed corpus runs unconditionally
+    # via the regular `go test` step above on every matrix leg.
+    - name: Fuzz Unmarshal type conversions
+      if: matrix.go-version == '1.24'
+      run: |
+        for fz in FuzzFindNamed FuzzNamedGroups FuzzUnmarshalInt FuzzUnmarshalUint FuzzUnmarshalFloat FuzzUnmarshalBool; do
+          echo "::group::go test -fuzz=^$fz$ -fuzztime=10s"
+          go test -run='^$' -fuzz="^$fz$" -fuzztime=10s ./...
+          echo "::endgroup::"
+        done
+
     - name: Enforce coverage threshold
       env:
         # Floor below which the build fails. Current baseline is ~87.6%; this
