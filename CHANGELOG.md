@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-26
+
+Additive minor release. No breaking changes — every existing field type, function signature, and tag form keeps working. New surface area in three buckets: extraction helpers, an extension point for caller-defined types, and richer `Unmarshal` field-type support.
+
+### Added
+
+- **`FindAllNamed(re, target, groupName) []string`** — collects every value of a single named group across all matches. Returns `nil` when the group is not declared on the regex; an empty slice when declared but no matches. Fills the gap between `FindNamed` (one match, one group) and `AllNamedGroups` (all matches, all groups). ([#58](https://github.com/Jecoms/regextra/pull/58))
+- **`Replace(re, target, replacements map[string]string) string`** — substitutes the matched span of each named capture group with the value from the map. Operates on every match in order; groups absent from the map pass through unchanged. ([#59](https://github.com/Jecoms/regextra/pull/59))
+- **`Validate(re, required ...string) error`** — returns an error listing required group names not declared on the regex. Init-time assertion that catches typos at startup instead of at the first mismatched request. ([#60](https://github.com/Jecoms/regextra/pull/60))
+- **`RegexUnmarshaler` interface** — mirror of `encoding.TextUnmarshaler` for the regextra unmarshal path. When a destination field's pointer type satisfies this interface, `Unmarshal` calls `UnmarshalRegex(value)` instead of running the built-in type switch. The extension point for caller-defined types (URLs, enums, big numbers, IP addresses, custom timestamp formats). ([#61](https://github.com/Jecoms/regextra/pull/61))
+- **`time.Time` and `time.Duration` field support in `Unmarshal`** — `time.Time` tries RFC3339Nano, RFC3339, DateTime, DateOnly, TimeOnly in order; `time.Duration` parses via `time.ParseDuration`. Caught by Type before the kind switch so `time.Duration`'s underlying `int64` doesn't pre-empt the duration parser. ([#62](https://github.com/Jecoms/regextra/pull/62))
+- **Pointer field support in `Unmarshal`** — nil pointers are allocated; non-nil pointers are reused with the pointee overwritten. Covers the optional-field idiom (`*string`, `*int`, `*time.Time`, …) without forcing a `RegexUnmarshaler` wrapper. Single-level pointers are the documented contract. ([#63](https://github.com/Jecoms/regextra/pull/63))
+- **Tag options: `default=<value>` and `layout=<go-time-layout>`** — `default=` substitutes when the named group is undeclared or its match is empty (goes through type conversion, so `default=100` works on `int` fields). `layout=` pins `time.Time` parsing to a specific layout for non-RFC3339 sources (Apache logs, locale-specific timestamps). Tag grammar is JSON-encoding-style: `regex:"name,key=value,key=value"`. ([#64](https://github.com/Jecoms/regextra/pull/64))
+
+### Changed
+
+- `setFieldValue` dispatch order is now: pointer → `RegexUnmarshaler` → `time.Time`/`time.Duration` Type match → kind switch. Ordering is intentional and asserted by tests — `RegexUnmarshaler` must come before `time.Time` so a `type MyTime time.Time` with its own `UnmarshalRegex` isn't pre-empted by the time-types fast path; the time-types Type match must come before the kind switch so `time.Duration`'s underlying `Int64` kind doesn't pre-empt `time.ParseDuration`.
+
+### Deprecated
+
+- _None._
+
+### Removed
+
+- _None._
+
+### Fixed
+
+- _None._
+
+### Security
+
+- _None._
+
 ## [0.3.2] - 2026-04-26
 
 ### Added
