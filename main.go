@@ -487,10 +487,26 @@ var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
 
 // setFieldValue sets the field value with appropriate type conversion
 func setFieldValue(field reflect.Value, value string) error {
-	// 1. RegexUnmarshaler comes first — caller-defined conversions beat
-	//    everything, including the stdlib special-cases below. A type
-	//    `type MyTime time.Time` with its own UnmarshalRegex must NOT be
-	//    pre-empted by the time.Time fast path.
+	// 0. Pointer fields: allocate the pointee if nil, then either dispatch
+	//    on the pointer's own RegexUnmarshaler (the common case for
+	//    pointer-receiver methods) or recurse into the pointee for the
+	//    built-in type conversions. Single-level pointers only —
+	//    `**Foo` falls through to the recursive call which handles each
+	//    level of indirection until the base case.
+	if field.Kind() == reflect.Ptr {
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		if u, ok := field.Interface().(RegexUnmarshaler); ok {
+			return u.UnmarshalRegex(value)
+		}
+		return setFieldValue(field.Elem(), value)
+	}
+
+	// 1. RegexUnmarshaler comes first for non-pointer fields — caller-defined
+	//    conversions beat everything, including the stdlib special-cases
+	//    below. A type `type MyTime time.Time` with its own UnmarshalRegex
+	//    must NOT be pre-empted by the time.Time fast path.
 	if field.CanAddr() {
 		if u, ok := field.Addr().Interface().(RegexUnmarshaler); ok {
 			return u.UnmarshalRegex(value)
