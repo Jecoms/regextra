@@ -21,15 +21,15 @@ If a report is rejected (not a vulnerability, out of scope), you'll get an expla
 
 ## Versions supported with security fixes
 
-The latest minor of the current major plus the previous minor receive security fixes. Older versions do not.
+The latest minor of the current major plus the immediately preceding minor receive security fixes. Older minors do not.
 
 | Version | Supported |
 |---------|-----------|
-| Latest minor (e.g. v0.5.x) | ✓ |
-| Previous minor (e.g. v0.4.x) | ✓ |
+| Latest minor of the current major | ✓ |
+| Previous minor of the current major | ✓ |
 | Anything older | Upgrade |
 
-After v1.0.0 ships, the same rule applies on the v1 line; the latest v0.x will receive critical fixes for a 6-month window after v1.0 then drop out of support.
+When the next major ships, the same rule applies on the new major line; the latest minor of the prior major receives critical fixes for a 6-month transition window, then drops out of support.
 
 ## Scope
 
