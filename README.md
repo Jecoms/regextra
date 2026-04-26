@@ -15,6 +15,33 @@ Extensions to Go's regexp package for easier handling of named capture groups.
 go get github.com/jecoms/regextra@latest
 ```
 
+## Stability
+
+`regextra` is pre-v1 and follows SemVer. The exact rules:
+
+**Pre-v1 (current)**
+
+- Patch releases (`v0.x.y`) are fixes only — never breaking.
+- Minor releases (`v0.x.0`) may add features and may include breaking changes. Breaking changes are called out in the [CHANGELOG](./CHANGELOG.md).
+- The path to v1.0 (and what "v1" commits to) is in [ROADMAP.md](./ROADMAP.md).
+
+**Post-v1 (future)**
+
+- Strict SemVer. Breaking changes ship in the next major version, never in a minor or patch.
+
+**What counts as breaking**
+
+- Removing or renaming an exported symbol.
+- Changing the signature of an exported function or method.
+- Changing observable behavior of an existing call (e.g. a previously-returning call now returns an error).
+
+**What does *not* count as breaking**
+
+- Adding a new exported function, type, or method.
+- Adding a new option to the `regex:"..."` struct tag grammar.
+- Accepting additional field types in `Unmarshal` / `UnmarshalAll` / `Decoder`.
+- Changing the wording of error messages. Do not pattern-match on `err.Error()` strings; compare against the exported sentinels (e.g. `regextra.ErrNoMatch` with `errors.Is`) instead.
+
 ## Usage
 
 ```go
