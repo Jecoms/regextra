@@ -1362,7 +1362,6 @@ func ExampleUnmarshalAll() {
 	// Bob: 25
 }
 
-
 // Fuzz tests for Unmarshal type conversions and FindNamed reflection paths.
 // CI runs these with `go test -fuzz=Fuzz... -fuzztime=...` to exercise the
 // strconv-backed Int / Uint / Float / Bool branches and the regex-resolution
