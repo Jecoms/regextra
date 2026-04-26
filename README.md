@@ -93,6 +93,18 @@ allGroups := regextra.AllNamedGroups(re, "one two three")
 // allGroups = map[string][]string{"word": []string{"one", "two", "three"}}
 ```
 
+### `Replace(re *regexp.Regexp, target string, replacements map[string]string) string`
+
+Substitute the matched span of each named capture group with the value from `replacements`, leaving non-matching text and any groups absent from the map unchanged. `Replace` operates on every match of `re`, in order.
+
+```go
+re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+out := regextra.Replace(re, "alice@example.com bob@other.org", map[string]string{
+    "domain": "redacted",
+})
+// out = "alice@redacted bob@redacted"
+```
+
 ### `Unmarshal(re *regexp.Regexp, target string, v any) error`
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
