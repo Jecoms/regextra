@@ -124,7 +124,7 @@ func FuzzUnmarshalUint(f *testing.F) {
 	}
 	re := regexp.MustCompile(`^(?P<n>.*)$`)
 
-	f.Fuzz(func(t *testing.T, raw string) {
+	f.Fuzz(func(_ *testing.T, raw string) {
 		for _, b := range []byte(raw) {
 			if b == '\n' || b == '\r' {
 				return
@@ -146,7 +146,7 @@ func FuzzUnmarshalFloat(f *testing.F) {
 	}
 	re := regexp.MustCompile(`^(?P<n>.*)$`)
 
-	f.Fuzz(func(t *testing.T, raw string) {
+	f.Fuzz(func(_ *testing.T, raw string) {
 		for _, b := range []byte(raw) {
 			if b == '\n' || b == '\r' {
 				return
@@ -169,7 +169,7 @@ func FuzzUnmarshalBool(f *testing.F) {
 	}
 	re := regexp.MustCompile(`^(?P<b>.*)$`)
 
-	f.Fuzz(func(t *testing.T, raw string) {
+	f.Fuzz(func(_ *testing.T, raw string) {
 		for _, b := range []byte(raw) {
 			if b == '\n' || b == '\r' {
 				return
