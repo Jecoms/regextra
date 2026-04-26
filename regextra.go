@@ -1,17 +1,77 @@
-// Package regextra provides extensions to Go's regexp package for easier handling of named capture groups.
-//
-// The standard library's regexp package requires verbose code to extract named groups:
-//
-//	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-//	matches := re.FindStringSubmatch("Alice 30")
-//	nameIndex := re.SubexpIndex("name")
-//	name := matches[nameIndex]  // "Alice"
-//
-// This package simplifies named group extraction:
-//
-//	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-//	name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
-//	groups := regextra.NamedGroups(re, "Alice 30")          // map[name:Alice age:30]
+/*
+Package regextra adds the convenience layer the standard library's regexp
+package leaves out: name-based access to capture groups, struct unmarshaling,
+and a typed cached decoder for repeated patterns.
+
+# The pain it solves
+
+Extracting a named group with stdlib regexp is a three-step dance:
+
+	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+	matches := re.FindStringSubmatch("Alice 30")
+	nameIndex := re.SubexpIndex("name")
+	name := matches[nameIndex]  // "Alice"
+
+regextra collapses that to one call, and goes further with map-based access
+and json.Unmarshal-style decoding into structs.
+
+# Quick start
+
+	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+
+	// Single named group:
+	name, ok := regextra.FindNamed(re, "Alice is 30", "name")  // "Alice", true
+
+	// All named groups as a map:
+	m := regextra.NamedGroups(re, "Alice is 30")  // map[name:Alice age:30]
+
+	// Decode into a typed struct:
+	type Person struct {
+	    Name string
+	    Age  int
+	}
+	var p Person
+	regextra.Unmarshal(re, "Alice is 30", &p)  // p = {Name: "Alice", Age: 30}
+
+# API at a glance
+
+By use case:
+
+  - Pull one named group from one match: [FindNamed]
+  - Pull one named group across all matches: [FindAllNamed]
+  - Pull every named group from one match (map): [NamedGroups]
+  - Pull every named group across all matches (map of slices): [AllNamedGroups]
+  - Substitute named-group spans by name: [Replace]
+  - Assert at startup that required groups are declared: [Validate]
+  - Decode one match into a struct: [Unmarshal]
+  - Decode all matches into a slice of structs: [UnmarshalAll]
+  - Decode the same shape repeatedly with cached reflect work: [Compile], [MustCompile], [Decoder]
+  - Stream matches lazily (Go 1.23+ range-over-func): [Decoder.Iter]
+  - Plug in caller-defined types in the unmarshal path: [RegexUnmarshaler]
+  - Compare against the no-match sentinel: [ErrNoMatch]
+
+# Performance
+
+For one-shot extraction, [Unmarshal] does its reflect work per call. For repeated
+decode of the same shape (log parsers, request handlers, config readers), use
+[Compile] / [Decoder] — it caches the per-field plan and benchmarks at roughly
+half the time and half the allocations of [Unmarshal] on equivalent input.
+[Decoder.Iter] further skips the slice allocation entirely for streaming
+consumers.
+
+# Stability
+
+regextra is pre-v1 and follows SemVer. Patch releases are fixes only. Minor
+releases may add features and may include breaking changes (called out in the
+CHANGELOG). Post-v1, breaking changes will ship in the next major version.
+See ROADMAP.md and the README's Stability section for the precise contract,
+including what does and does not count as breaking.
+
+# More
+
+The package README has full per-function reference with runnable examples for
+each function.
+*/
 package regextra
 
 import (
