@@ -248,3 +248,34 @@ func BenchmarkUnmarshalAll_logLines(b *testing.B) {
 		}
 	}
 }
+
+// benchIterLine + benchIterDecoder are the Iter-side fixtures, paralleling
+// BenchmarkUnmarshalAll_logLines. Iter doesn't allocate the result slice; the
+// benchmark consumes via a counter to keep the loop body honest.
+type benchIterLine struct {
+	Level string `regex:"level"`
+	Msg   string `regex:"msg"`
+}
+
+var benchIterDecoder = rx.MustCompile[benchIterLine](`\[(?P<level>\w+)\] (?P<msg>[^\n]+)`)
+
+// BenchmarkDecoder_Iter_logLines measures Iter-based streaming decode of the
+// same 100-line corpus as BenchmarkUnmarshalAll_logLines. The win vs.
+// UnmarshalAll comes from skipping the slice allocation — useful when the
+// caller processes-and-discards each item.
+func BenchmarkDecoder_Iter_logLines(b *testing.B) {
+	target := strings.Repeat("[info] message body here\n", 100)
+	b.ReportAllocs()
+	for b.Loop() {
+		count := 0
+		for _, err := range benchIterDecoder.Iter(target) {
+			if err != nil {
+				b.Fatal(err)
+			}
+			count++
+		}
+		if count != 100 {
+			b.Fatalf("got %d lines, want 100", count)
+		}
+	}
+}
