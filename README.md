@@ -69,6 +69,20 @@ price, ok := regextra.FindNamed(re, "Total: $19.99", "price")
 // price = "$19.99", ok = true
 ```
 
+### `FindAllNamed(re *regexp.Regexp, target, groupName string) []string`
+
+Extract every value of a single named capture group across all matches.
+
+Returns `nil` if the group name is not declared on the regex; an empty slice if the group is declared but the regex has no matches.
+
+```go
+re := regexp.MustCompile(`(?P<word>\S+)`)
+words := regextra.FindAllNamed(re, "alpha beta gamma", "word")
+// words = []string{"alpha", "beta", "gamma"}
+```
+
+For a single match, prefer `FindNamed`. To collect every named group's values across all matches, use `AllNamedGroups`.
+
 ### `NamedGroups(re *regexp.Regexp, target string) map[string]string`
 
 Extract all named capture groups as a map. If a group name appears multiple times, only the last match is returned.
