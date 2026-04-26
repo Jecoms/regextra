@@ -3,6 +3,7 @@ package regextra
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"reflect"
 	"regexp"
 )
@@ -223,6 +224,42 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 		}
 	}
 	return out, nil
+}
+
+// Iter returns a range-over-func iterator that decodes each match of d's
+// pattern in target into a T, yielded with the per-match decode error.
+// nil error means decoded successfully; non-nil means a per-field
+// conversion failed on that match. Iteration continues past errors so
+// callers can collect or skip individual failures:
+//
+//	for v, err := range dec.Iter(input) {
+//	    if err != nil {
+//	        log.Printf("skipping bad match: %v", err)
+//	        continue
+//	    }
+//	    process(v)
+//	}
+//
+// Break out of the range body to stop iteration early (e.g. after the first
+// match). The match-finding step is not lazy — Go's regexp package
+// pre-computes all match positions in one call — but the decode step IS
+// lazy, so breaking early avoids the per-match reflect work for the
+// remaining matches.
+//
+// For a slice of all results with a single error, prefer [Decoder.All].
+// For a single match with a sentinel ErrNoMatch, prefer [Decoder.One].
+func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		allMatches := d.re.FindAllStringSubmatch(target, -1)
+		for _, matches := range allMatches {
+			var v T
+			rv := reflect.ValueOf(&v).Elem()
+			err := d.decode(rv, matches)
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
 }
 
 // Pattern returns the regex source pattern this Decoder was compiled from.

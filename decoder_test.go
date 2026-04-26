@@ -391,3 +391,95 @@ func ExampleDecoder_All() {
 	// Alice/30
 	// Bob/25
 }
+
+func ExampleDecoder_Iter() {
+	type Entry struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	dec := rx.MustCompile[Entry](`(?P<name>\w+) is (?P<age>\d+)`)
+	for p, err := range dec.Iter("Alice is 30 and Bob is 25") {
+		if err != nil {
+			continue
+		}
+		fmt.Printf("%s/%d\n", p.Name, p.Age)
+	}
+	// Output:
+	// Alice/30
+	// Bob/25
+}
+
+// ── Iter ──────────────────────────────────────────────────────────────────────
+
+func TestDecoder_Iter_yieldsEveryMatch(t *testing.T) {
+	type E struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	dec := rx.MustCompile[E](`(?P<name>\w+) is (?P<age>\d+)`)
+	var got []E
+	for v, err := range dec.Iter("Alice is 30 and Bob is 25 and Carol is 40") {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got = append(got, v)
+	}
+	want := []E{{"Alice", 30}, {"Bob", 25}, {"Carol", 40}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Iter collected %+v, want %+v", got, want)
+	}
+}
+
+func TestDecoder_Iter_noMatchesYieldsNothing(t *testing.T) {
+	type E struct {
+		Name string `regex:"name"`
+	}
+	dec := rx.MustCompile[E](`(?P<name>\d+)`)
+	count := 0
+	for range dec.Iter("nodigits here") {
+		count++
+	}
+	if count != 0 {
+		t.Errorf("Iter yielded %d times on no-match input, want 0", count)
+	}
+}
+
+func TestDecoder_Iter_breakStopsEarly(t *testing.T) {
+	type E struct {
+		Name string `regex:"name"`
+	}
+	dec := rx.MustCompile[E](`(?P<name>\w+)`)
+	count := 0
+	for v := range dec.Iter("alpha beta gamma delta") {
+		count++
+		if v.Name == "beta" {
+			break
+		}
+	}
+	if count != 2 {
+		t.Errorf("Iter yielded %d times before break, want 2", count)
+	}
+}
+
+func TestDecoder_Iter_continuesPastErrors(t *testing.T) {
+	type E struct {
+		Age int `regex:"age"`
+	}
+	dec := rx.MustCompile[E](`age=(?P<age>\S+)`)
+	var oks []E
+	var errs int
+	for v, err := range dec.Iter("age=10 age=bad age=20") {
+		if err != nil {
+			errs++
+			continue
+		}
+		oks = append(oks, v)
+	}
+	if errs != 1 {
+		t.Errorf("got %d errors, want 1 (the bad middle match)", errs)
+	}
+	want := []E{{Age: 10}, {Age: 20}}
+	if !reflect.DeepEqual(oks, want) {
+		t.Errorf("got %+v, want %+v", oks, want)
+	}
+}
