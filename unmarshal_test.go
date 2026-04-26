@@ -1,7 +1,8 @@
-package regextra
+package regextra_test
 
 import (
 	"fmt"
+	rx "github.com/jecoms/regextra"
 	"reflect"
 	"regexp"
 	"strings"
@@ -49,7 +50,7 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 		}
 		re := regexp.MustCompile(`#(?P<id>\d+) \[(?P<state>\w+)\]`)
 		var issue Issue
-		if err := Unmarshal(re, "#42 [open]", &issue); err != nil {
+		if err := rx.Unmarshal(re, "#42 [open]", &issue); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if issue.ID != 42 {
@@ -66,7 +67,7 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 		}
 		re := regexp.MustCompile(`\[(?P<state>\w+)\]`)
 		var issue Issue
-		err := Unmarshal(re, "[bogus]", &issue)
+		err := rx.Unmarshal(re, "[bogus]", &issue)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error")
 		}
@@ -83,7 +84,7 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 		}
 		re := regexp.MustCompile(`\[(?P<state>\w+)\]`)
 		var issue Issue
-		if err := Unmarshal(re, "[open]", &issue); err != nil {
+		if err := rx.Unmarshal(re, "[open]", &issue); err != nil {
 			t.Fatalf("Unmarshal returned %v — interface check was not hit before int conversion", err)
 		}
 	})
@@ -94,7 +95,7 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<v>\w+)`)
 		var h Holder
-		if err := Unmarshal(re, "ok", &h); err != nil {
+		if err := rx.Unmarshal(re, "ok", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 	})
@@ -107,7 +108,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>\S+)`)
 		var ev Event
-		if err := Unmarshal(re, "2026-04-26T12:34:56Z", &ev); err != nil {
+		if err := rx.Unmarshal(re, "2026-04-26T12:34:56Z", &ev); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		want, _ := time.Parse(time.RFC3339, "2026-04-26T12:34:56Z")
@@ -122,7 +123,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>.+)`)
 		var ev Event
-		if err := Unmarshal(re, "2026-04-26 12:34:56", &ev); err != nil {
+		if err := rx.Unmarshal(re, "2026-04-26 12:34:56", &ev); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if ev.TS.Year() != 2026 || ev.TS.Month() != time.April || ev.TS.Day() != 26 {
@@ -136,7 +137,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>\S+)`)
 		var ev Event
-		if err := Unmarshal(re, "2026-04-26", &ev); err != nil {
+		if err := rx.Unmarshal(re, "2026-04-26", &ev); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if ev.TS.Year() != 2026 {
@@ -150,7 +151,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>.+)`)
 		var ev Event
-		err := Unmarshal(re, "definitely not a time", &ev)
+		err := rx.Unmarshal(re, "definitely not a time", &ev)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error")
 		}
@@ -165,7 +166,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<d>\S+)`)
 		var sp Span
-		if err := Unmarshal(re, "1h30m", &sp); err != nil {
+		if err := rx.Unmarshal(re, "1h30m", &sp); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		want := 90 * time.Minute
@@ -180,7 +181,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<d>\S+)`)
 		var sp Span
-		err := Unmarshal(re, "notaduration", &sp)
+		err := rx.Unmarshal(re, "notaduration", &sp)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error")
 		}
@@ -198,7 +199,7 @@ func TestUnmarshalTimeTypes(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<d>\S+)`)
 		var sp Span
-		if err := Unmarshal(re, "5s", &sp); err != nil {
+		if err := rx.Unmarshal(re, "5s", &sp); err != nil {
 			t.Fatalf("Unmarshal returned %v — Type-based match did not pre-empt Int64 kind", err)
 		}
 	})
@@ -229,49 +230,9 @@ func ExampleUnmarshal_timeTypes() {
 	}
 	re := regexp.MustCompile(`(?P<start>\S+)\s+\((?P<took>\S+)\)`)
 	var ev Event
-	_ = Unmarshal(re, "2026-04-26T12:34:56Z (1h30m)", &ev)
+	_ = rx.Unmarshal(re, "2026-04-26T12:34:56Z (1h30m)", &ev)
 	fmt.Printf("%s for %s\n", ev.Started.Format(time.RFC3339), ev.Took)
 	// Output: 2026-04-26T12:34:56Z for 1h30m0s
-}
-
-func TestParseFieldTag(t *testing.T) {
-	type T struct {
-		A string `regex:"a"`
-		B string `regex:"b,default=fallback"`
-		C string `regex:"c,default=,layout=2006"`
-		D string `regex:"d,layout=2006-01-02"`
-		E string `regex:""`
-		F string `regex:"-"`
-		G string
-		H string `regex:"h,unknown=stuff,layout=Z"`
-	}
-	tt := reflect.TypeOf(T{})
-	cases := []struct {
-		fieldName string
-		wantName  string
-		wantOpts  map[string]string
-	}{
-		{"A", "a", nil},
-		{"B", "b", map[string]string{"default": "fallback"}},
-		{"C", "c", map[string]string{"default": "", "layout": "2006"}},
-		{"D", "d", map[string]string{"layout": "2006-01-02"}},
-		{"E", "", nil},
-		{"F", "", nil},
-		{"G", "", nil},
-		{"H", "h", map[string]string{"unknown": "stuff", "layout": "Z"}},
-	}
-	for _, c := range cases {
-		t.Run(c.fieldName, func(t *testing.T) {
-			f, _ := tt.FieldByName(c.fieldName)
-			gotName, gotOpts := parseFieldTag(f)
-			if gotName != c.wantName {
-				t.Errorf("name = %q, want %q", gotName, c.wantName)
-			}
-			if !reflect.DeepEqual(gotOpts, c.wantOpts) {
-				t.Errorf("opts = %v, want %v", gotOpts, c.wantOpts)
-			}
-		})
-	}
 }
 
 func TestUnmarshalDefault(t *testing.T) {
@@ -283,7 +244,7 @@ func TestUnmarshalDefault(t *testing.T) {
 		const wantName = "Mallory"
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var p Person
-		if err := Unmarshal(re, wantName, &p); err != nil {
+		if err := rx.Unmarshal(re, wantName, &p); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if p.Name != wantName {
@@ -302,7 +263,7 @@ func TestUnmarshalDefault(t *testing.T) {
 		// match for the named group.
 		re := regexp.MustCompile(`^(?P<title>[A-Z]?)\.?$`)
 		var p Person
-		if err := Unmarshal(re, ".", &p); err != nil {
+		if err := rx.Unmarshal(re, ".", &p); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if p.Title != "N/A" {
@@ -316,7 +277,7 @@ func TestUnmarshalDefault(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<role>\w+)`)
 		var p Person
-		if err := Unmarshal(re, "admin", &p); err != nil {
+		if err := rx.Unmarshal(re, "admin", &p); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if p.Role != "admin" {
@@ -330,7 +291,7 @@ func TestUnmarshalDefault(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<other>\w+)`)
 		var l Limits
-		if err := Unmarshal(re, "ignored", &l); err != nil {
+		if err := rx.Unmarshal(re, "ignored", &l); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if l.Max != 100 {
@@ -344,7 +305,7 @@ func TestUnmarshalDefault(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<other>\w+)`)
 		var l Limits
-		err := Unmarshal(re, "ignored", &l)
+		err := rx.Unmarshal(re, "ignored", &l)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error from default conversion")
 		}
@@ -361,7 +322,7 @@ func TestUnmarshalLayoutOverride(t *testing.T) {
 		}
 		re := regexp.MustCompile(`\[(?P<ts>[^\]]+)\]`)
 		var l Log
-		if err := Unmarshal(re, "[26/Apr/2026:12:34:56 -0500]", &l); err != nil {
+		if err := rx.Unmarshal(re, "[26/Apr/2026:12:34:56 -0500]", &l); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if l.TS.Year() != 2026 || l.TS.Month() != time.April || l.TS.Day() != 26 {
@@ -375,7 +336,7 @@ func TestUnmarshalLayoutOverride(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>\S+)`)
 		var l Log
-		err := Unmarshal(re, "not-a-date", &l)
+		err := rx.Unmarshal(re, "not-a-date", &l)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error")
 		}
@@ -392,7 +353,7 @@ func TestUnmarshalLayoutOverride(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>\S+)`)
 		var l Log
-		err := Unmarshal(re, "2026-04-26", &l)
+		err := rx.Unmarshal(re, "2026-04-26", &l)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil; layout override should not fall back to DateOnly")
 		}
@@ -406,7 +367,7 @@ func ExampleUnmarshal_defaultAndLayout() {
 	}
 	re := regexp.MustCompile(`\[(?P<ts>[^\]]+)\]\s*(?P<other>.*)`)
 	var l LogLine
-	_ = Unmarshal(re, "[26/Apr/2026:12:34:56 -0500] something happened", &l)
+	_ = rx.Unmarshal(re, "[26/Apr/2026:12:34:56 -0500] something happened", &l)
 	fmt.Printf("%s @ %s\n", l.Level, l.TS.Format("2006-01-02"))
 	// Output: info @ 2026-04-26
 }
@@ -418,7 +379,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<s>\w+)`)
 		var h Holder
-		if err := Unmarshal(re, "hello", &h); err != nil {
+		if err := rx.Unmarshal(re, "hello", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.S == nil {
@@ -435,7 +396,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<n>\d+)`)
 		var h Holder
-		if err := Unmarshal(re, "42", &h); err != nil {
+		if err := rx.Unmarshal(re, "42", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.N == nil || *h.N != 42 {
@@ -449,7 +410,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<f>\S+)`)
 		var h Holder
-		if err := Unmarshal(re, "3.14", &h); err != nil {
+		if err := rx.Unmarshal(re, "3.14", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.F == nil || *h.F != 3.14 {
@@ -463,7 +424,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<b>\S+)`)
 		var h Holder
-		if err := Unmarshal(re, "true", &h); err != nil {
+		if err := rx.Unmarshal(re, "true", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.B == nil || *h.B != true {
@@ -477,7 +438,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<ts>\S+)`)
 		var h Holder
-		if err := Unmarshal(re, "2026-04-26T12:34:56Z", &h); err != nil {
+		if err := rx.Unmarshal(re, "2026-04-26T12:34:56Z", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.TS == nil {
@@ -494,7 +455,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<d>\S+)`)
 		var h Holder
-		if err := Unmarshal(re, "5s", &h); err != nil {
+		if err := rx.Unmarshal(re, "5s", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.D == nil || *h.D != 5*time.Second {
@@ -508,7 +469,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`\[(?P<s>\w+)\]`)
 		var h Holder
-		if err := Unmarshal(re, "[open]", &h); err != nil {
+		if err := rx.Unmarshal(re, "[open]", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.S == nil || *h.S != statusOpen {
@@ -524,7 +485,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		preallocated := 999
 		h := Holder{N: &preallocated}
 		original := h.N
-		if err := Unmarshal(re, "42", &h); err != nil {
+		if err := rx.Unmarshal(re, "42", &h); err != nil {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 		if h.N != original {
@@ -541,7 +502,7 @@ func TestUnmarshalPointerFields(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<n>\S+)`)
 		var h Holder
-		err := Unmarshal(re, "notanumber", &h)
+		err := rx.Unmarshal(re, "notanumber", &h)
 		if err == nil {
 			t.Fatal("Unmarshal returned nil, want error")
 		}
@@ -558,7 +519,7 @@ func ExampleUnmarshal_pointerFields() {
 	}
 	re := regexp.MustCompile(`(?P<name>\w+)\s+is\s+(?P<age>\d+)`)
 	var r Result
-	_ = Unmarshal(re, "Alice is 30", &r)
+	_ = rx.Unmarshal(re, "Alice is 30", &r)
 	fmt.Printf("%s, %d\n", *r.Name, *r.Age)
 	// Output: Alice, 30
 }
@@ -571,7 +532,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 		var person Person
-		err := Unmarshal(re, "Alice is 30", &person)
+		err := rx.Unmarshal(re, "Alice is 30", &person)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -590,7 +551,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 		var person Person
-		err := Unmarshal(re, "Bob is 25", &person)
+		err := rx.Unmarshal(re, "Bob is 25", &person)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -609,7 +570,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+) costs \$(?P<price>[\d.]+)`)
 		var product Product
-		err := Unmarshal(re, "Widget costs $19.99", &product)
+		err := rx.Unmarshal(re, "Widget costs $19.99", &product)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -628,7 +589,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
 		var email Email
-		err := Unmarshal(re, "alice@example.com", &email)
+		err := rx.Unmarshal(re, "alice@example.com", &email)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -647,7 +608,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<username>\w+) (?P<age>\d+)`)
 		var data Data
-		err := Unmarshal(re, "john 42", &data)
+		err := rx.Unmarshal(re, "john 42", &data)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -665,7 +626,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>[a-z]+)`) // Only lowercase letters
 		var person Person
-		err := Unmarshal(re, "123", &person)
+		err := rx.Unmarshal(re, "123", &person)
 		if err != nil {
 			t.Errorf("Unmarshal() error = %v, want nil", err)
 		}
@@ -680,7 +641,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person Person
-		err := Unmarshal(re, "Alice", person) // Not a pointer
+		err := rx.Unmarshal(re, "Alice", person) // Not a pointer
 		if err == nil {
 			t.Error("Unmarshal() expected error for non-pointer, got nil")
 		}
@@ -692,7 +653,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person *Person
-		err := Unmarshal(re, "Alice", person) // Nil pointer
+		err := rx.Unmarshal(re, "Alice", person) // Nil pointer
 		if err == nil {
 			t.Error("Unmarshal() expected error for nil pointer, got nil")
 		}
@@ -701,7 +662,7 @@ func TestUnmarshal(t *testing.T) {
 	t.Run("error on pointer to non-struct", func(t *testing.T) {
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var name string
-		err := Unmarshal(re, "Alice", &name) // Pointer to string, not struct
+		err := rx.Unmarshal(re, "Alice", &name) // Pointer to string, not struct
 		if err == nil {
 			t.Error("Unmarshal() expected error for pointer to non-struct, got nil")
 		}
@@ -714,7 +675,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`enabled=(?P<enabled>\w+) debug=(?P<debug>\w+)`)
 		var config Config
-		err := Unmarshal(re, "enabled=yes debug=true", &config)
+		err := rx.Unmarshal(re, "enabled=yes debug=true", &config)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -733,7 +694,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<public>\w+) (?P<private>\w+)`)
 		var data Data
-		err := Unmarshal(re, "hello world", &data)
+		err := rx.Unmarshal(re, "hello world", &data)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -753,7 +714,7 @@ func TestUnmarshal(t *testing.T) {
 		// Pattern has both "value" and "count" groups
 		re := regexp.MustCompile(`value=(?P<value>\w+) count=(?P<count>\d+)`)
 		var data Data
-		err := Unmarshal(re, "value=hello count=42", &data)
+		err := rx.Unmarshal(re, "value=hello count=42", &data)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -772,7 +733,7 @@ func ExampleUnmarshal() {
 
 	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+) years old`)
 	var person Person
-	err := Unmarshal(re, "Alice is 30 years old", &person)
+	err := rx.Unmarshal(re, "Alice is 30 years old", &person)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -790,7 +751,7 @@ func ExampleUnmarshal_structTags() {
 
 	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
 	var email Email
-	err := Unmarshal(re, "alice@example.com", &email)
+	err := rx.Unmarshal(re, "alice@example.com", &email)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -808,7 +769,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 		var people []Person
-		err := UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+		err := rx.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
 		if err != nil {
 			t.Fatalf("UnmarshalAll() error = %v", err)
 		}
@@ -829,7 +790,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>[a-z]+)`)
 		people := []Person{{Name: "existing"}}
-		err := UnmarshalAll(re, "123", &people)
+		err := rx.UnmarshalAll(re, "123", &people)
 		if err != nil {
 			t.Fatalf("UnmarshalAll() error = %v", err)
 		}
@@ -845,7 +806,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
 		var emails []Email
-		err := UnmarshalAll(re, "Contact: alice@example.com", &emails)
+		err := rx.UnmarshalAll(re, "Contact: alice@example.com", &emails)
 		if err != nil {
 			t.Fatalf("UnmarshalAll() error = %v", err)
 		}
@@ -864,7 +825,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+):\$(?P<price>[\d.]+)`)
 		var products []Product
-		err := UnmarshalAll(re, "Items: Apple:$1.50 Banana:$0.75 Orange:$2.00", &products)
+		err := rx.UnmarshalAll(re, "Items: Apple:$1.50 Banana:$0.75 Orange:$2.00", &products)
 		if err != nil {
 			t.Fatalf("UnmarshalAll() error = %v", err)
 		}
@@ -887,7 +848,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var people []Person
-		err := UnmarshalAll(re, "Alice", people) // Not a pointer
+		err := rx.UnmarshalAll(re, "Alice", people) // Not a pointer
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for non-pointer, got nil")
 		}
@@ -899,7 +860,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var people *[]Person
-		err := UnmarshalAll(re, "Alice", people) // Nil pointer
+		err := rx.UnmarshalAll(re, "Alice", people) // Nil pointer
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for nil pointer, got nil")
 		}
@@ -911,7 +872,7 @@ func TestUnmarshalAll(t *testing.T) {
 		}
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var person Person
-		err := UnmarshalAll(re, "Alice", &person) // Pointer to struct, not slice
+		err := rx.UnmarshalAll(re, "Alice", &person) // Pointer to struct, not slice
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for pointer to non-slice, got nil")
 		}
@@ -920,7 +881,7 @@ func TestUnmarshalAll(t *testing.T) {
 	t.Run("error on slice of non-structs", func(t *testing.T) {
 		re := regexp.MustCompile(`(?P<name>\w+)`)
 		var names []string
-		err := UnmarshalAll(re, "Alice", &names) // Slice of strings, not structs
+		err := rx.UnmarshalAll(re, "Alice", &names) // Slice of strings, not structs
 		if err == nil {
 			t.Error("UnmarshalAll() expected error for slice of non-structs, got nil")
 		}
@@ -935,7 +896,7 @@ func ExampleUnmarshalAll() {
 
 	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 	var people []Person
-	err := UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
+	err := rx.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -977,7 +938,7 @@ func FuzzUnmarshalInt(f *testing.F) {
 		}
 
 		var v intHolder
-		err := Unmarshal(re, raw, &v)
+		err := rx.Unmarshal(re, raw, &v)
 		if err != nil {
 			// Non-int input is allowed to error; just confirm the error message
 			// names the offender clearly.
@@ -1012,7 +973,7 @@ func FuzzUnmarshalUint(f *testing.F) {
 			}
 		}
 		var v uintHolder
-		_ = Unmarshal(re, raw, &v) // allowed to error; just must not panic
+		_ = rx.Unmarshal(re, raw, &v) // allowed to error; just must not panic
 	})
 }
 
@@ -1034,7 +995,7 @@ func FuzzUnmarshalFloat(f *testing.F) {
 			}
 		}
 		var v floatHolder
-		_ = Unmarshal(re, raw, &v) // allowed to error; just must not panic
+		_ = rx.Unmarshal(re, raw, &v) // allowed to error; just must not panic
 	})
 }
 
@@ -1057,7 +1018,7 @@ func FuzzUnmarshalBool(f *testing.F) {
 			}
 		}
 		var v boolHolder
-		_ = Unmarshal(re, raw, &v) // allowed to error; just must not panic
+		_ = rx.Unmarshal(re, raw, &v) // allowed to error; just must not panic
 	})
 }
 
