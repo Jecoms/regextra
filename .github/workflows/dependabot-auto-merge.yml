@@ -1,0 +1,39 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge for action / dev-dependency bumps
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for github-actions and dev gomod bumps
+        # Only auto-merge:
+        #  - github-actions ecosystem (any update type)
+        #  - gomod ecosystem ONLY for direct:development dependencies AND patch/minor updates
+        # Production direct deps and major bumps still require human review.
+        if: |
+          steps.metadata.outputs.package-ecosystem == 'github-actions' ||
+          (steps.metadata.outputs.package-ecosystem == 'gomod' &&
+           steps.metadata.outputs.dependency-type == 'direct:development' &&
+           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+            steps.metadata.outputs.update-type == 'version-update:semver-minor'))
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
