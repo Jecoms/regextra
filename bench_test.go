@@ -24,6 +24,8 @@ import (
 
 var benchFindRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
 
+// BenchmarkFindNamed measures the single-group, single-match extraction path —
+// the cheapest function in the package and the baseline for everything else.
 func BenchmarkFindNamed(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
@@ -31,6 +33,8 @@ func BenchmarkFindNamed(b *testing.B) {
 	}
 }
 
+// BenchmarkNamedGroups measures the all-groups-as-map path. The map allocation
+// dominates the cost vs. FindNamed.
 func BenchmarkNamedGroups(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
@@ -38,6 +42,8 @@ func BenchmarkNamedGroups(b *testing.B) {
 	}
 }
 
+// BenchmarkFindAllNamed measures the all-matches projection of one named group.
+// Allocation scales with match count.
 func BenchmarkFindAllNamed(b *testing.B) {
 	re := regexp.MustCompile(`(?P<word>\S+)`)
 	target := "alpha beta gamma delta epsilon zeta eta theta"
@@ -49,6 +55,9 @@ func BenchmarkFindAllNamed(b *testing.B) {
 
 // ── Replace ───────────────────────────────────────────────────────────────────
 
+// BenchmarkReplace measures the substitution path: scan all matches, sort
+// per-match group spans, build the output string. Three matches in the input
+// to exercise the multi-match branch.
 func BenchmarkReplace(b *testing.B) {
 	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
 	target := "alice@example.com bob@other.org carol@third.net"
@@ -65,6 +74,9 @@ func BenchmarkReplace(b *testing.B) {
 // pointer / RegexUnmarshaler / time.Time fast-paths — measures the cost of
 // the four dispatch checks added in v0.4.0 against a "boring" struct.
 
+// benchSimple is a 3-field destination struct using only the kind-switch
+// branches of setFieldValue: string, int, bool. The benchmark measures that
+// path's per-call cost.
 type benchSimple struct {
 	Name   string `regex:"name"`
 	Age    int    `regex:"age"`
@@ -73,6 +85,8 @@ type benchSimple struct {
 
 var benchSimpleRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
 
+// BenchmarkUnmarshal_simpleStruct measures the kind-switch path with no fast
+// paths hit. Establishes the baseline that v0.5.0's Decoder[T] should beat.
 func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 	target := "Alice is 30 true"
 	b.ReportAllocs()
@@ -90,11 +104,14 @@ func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
 // per field: one Kind() check + one IsNil() check + one allocation per nil
 // pointer.
 
+// benchPointers exercises the pointer dispatch step (allocate-if-nil + recurse).
 type benchPointers struct {
 	Name *string `regex:"name"`
 	Age  *int    `regex:"age"`
 }
 
+// BenchmarkUnmarshal_pointerFields measures the cost of the pointer dispatch
+// step plus the per-field allocation that nil pointers incur.
 func BenchmarkUnmarshal_pointerFields(b *testing.B) {
 	target := "Alice is 30"
 	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
@@ -113,6 +130,8 @@ func BenchmarkUnmarshal_pointerFields(b *testing.B) {
 // The fallback time.Parse loop runs only on first-layout-miss; this benchmark
 // uses RFC3339 input so the first layout matches.
 
+// benchTime exercises the time-types fast paths (Type-equality match before
+// the kind switch).
 type benchTime struct {
 	TS   time.Time     `regex:"ts"`
 	Took time.Duration `regex:"took"`
@@ -120,6 +139,9 @@ type benchTime struct {
 
 var benchTimeRe = regexp.MustCompile(`(?P<ts>\S+) \((?P<took>\S+)\)`)
 
+// BenchmarkUnmarshal_timeFields measures the time.Time + time.Duration fast
+// paths. Input is RFC3339 so the first layout in the fallback list matches —
+// worst-case (last-layout-wins) is not measured here.
 func BenchmarkUnmarshal_timeFields(b *testing.B) {
 	target := "2026-04-26T12:34:56Z (1h30m)"
 	b.ReportAllocs()
@@ -136,6 +158,8 @@ func BenchmarkUnmarshal_timeFields(b *testing.B) {
 // Exercises the interface-dispatch step. The test type is intentionally simple
 // so the benchmark measures dispatch cost, not the body of UnmarshalRegex.
 
+// benchStatus is a caller-defined enum whose pointer satisfies
+// RegexUnmarshaler. Used to measure the interface-dispatch step.
 type benchStatus int
 
 const (
@@ -144,6 +168,8 @@ const (
 	benchStatusClosed
 )
 
+// UnmarshalRegex maps the matched string to a benchStatus value. Body kept
+// minimal so the benchmark measures dispatch cost, not parse cost.
 func (s *benchStatus) UnmarshalRegex(value string) error {
 	switch value {
 	case "open":
@@ -156,12 +182,16 @@ func (s *benchStatus) UnmarshalRegex(value string) error {
 	return nil
 }
 
+// benchCustom is the destination struct for the RegexUnmarshaler benchmark.
 type benchCustom struct {
 	State benchStatus `regex:"state"`
 }
 
 var benchCustomRe = regexp.MustCompile(`\[(?P<state>\w+)\]`)
 
+// BenchmarkUnmarshal_customUnmarshaler measures the RegexUnmarshaler interface
+// dispatch step in setFieldValue. The custom UnmarshalRegex body is trivial so
+// the timing reflects dispatch overhead rather than user-defined work.
 func BenchmarkUnmarshal_customUnmarshaler(b *testing.B) {
 	target := "[open]"
 	b.ReportAllocs()
@@ -178,6 +208,10 @@ func BenchmarkUnmarshal_customUnmarshaler(b *testing.B) {
 // The realistic hot path for log parsers. Measures per-line amortized cost
 // across a batch — the metric Decoder[T] (re-3e2) is designed to improve.
 
+// BenchmarkUnmarshalAll_logLines measures amortized per-line decode cost
+// across a 100-line batch. This is the hot path Decoder[T] (re-3e2) is
+// designed to optimize — each iteration today rebuilds the reflect plan
+// from scratch.
 func BenchmarkUnmarshalAll_logLines(b *testing.B) {
 	type line struct {
 		Level string `regex:"level"`
