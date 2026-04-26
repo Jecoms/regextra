@@ -32,6 +32,23 @@ jobs:
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+    - name: Enforce coverage threshold
+      env:
+        # Floor below which the build fails. Current baseline is ~87.6%; this
+        # leaves ~3 points of slack to absorb small refactors without forcing
+        # tests on every micro-PR.
+        MIN_COVERAGE: '85.0'
+      run: |
+        set -euo pipefail
+        total=$(go tool cover -func=coverage.txt | awk '/^total:/ {print $3}' | tr -d '%')
+        echo "Total coverage: ${total}%"
+        echo "Minimum:        ${MIN_COVERAGE}%"
+        awk -v t="$total" -v m="$MIN_COVERAGE" 'BEGIN { exit (t+0 < m+0) ? 1 : 0 }' || {
+          echo "::error::Coverage ${total}% is below the required minimum ${MIN_COVERAGE}%."
+          exit 1
+        }
+        echo "✓ Coverage meets the threshold."
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
       with:
