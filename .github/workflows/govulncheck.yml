@@ -29,7 +29,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          go-version: '1.24'
+          # govulncheck@latest pulls golang.org/x/vuln >= v1.3.0 which requires
+          # Go ≥ 1.25 to build. The library still targets Go 1.24, but the
+          # scanner toolchain is independent of that.
+          go-version: '1.25'
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
