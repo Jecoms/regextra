@@ -194,6 +194,11 @@ func lower(s string) string {
 // Returns [ErrNoMatch] if there's no match. Other errors indicate a per-field
 // conversion failure; in that case the returned T contains whatever fields
 // were successfully decoded before the failure.
+//
+// One uses the [ErrNoMatch] sentinel because the (T, error) return shape would
+// otherwise make "no match" indistinguishable from "decoded a struct of all
+// zero fields". Compare with errors.Is. See the package doc's "No-match
+// behavior" section for the full cross-API contract.
 func (d *Decoder[T]) One(target string) (T, error) {
 	matches := d.re.FindStringSubmatch(target)
 	if matches == nil {
