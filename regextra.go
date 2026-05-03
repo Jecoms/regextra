@@ -59,6 +59,64 @@ half the time and half the allocations of [Unmarshal] on equivalent input.
 [Decoder.Iter] further skips the slice allocation entirely for streaming
 consumers.
 
+# No-match behavior
+
+Functions in this package handle "the regex did not match the target" differently
+depending on their return shape. The asymmetry is intentional — each call returns
+the no-match form that lets the caller continue without a special-case branch.
+
+	Function                                  No-match return
+	----------------------------------------------------------------------------
+	FindNamed                                 ("", false)
+	FindAllNamed                              []string{} (or nil if the group
+	                                          name is not declared on the regex)
+	NamedGroups, AllNamedGroups               empty map (initialized, not nil)
+	Replace                                   target returned unchanged
+	Validate                                  unrelated — checks declarations,
+	                                          not matches against a target
+	Unmarshal                                 nil error; destination struct left
+	                                          unchanged
+	UnmarshalAll                              nil error; destination slice
+	                                          length set to 0
+	Decoder.One                               zero T, [ErrNoMatch]
+	Decoder.All                               []T{}, nil
+	Decoder.Iter                              iterator yields zero times
+
+The contrast worth understanding is between [Unmarshal] and [Decoder.One]:
+
+  - [Unmarshal] returns nil on no match. The caller passes the destination, so
+    they can inspect their own struct after the call to detect "did anything
+    decode?" — no sentinel needed, and reserving error for genuine failures
+    (bad pointer, type-conversion failure) keeps `if err != nil` meaningful.
+
+  - [Decoder.One] returns [ErrNoMatch]. It returns (T, error), constructing
+    the value itself; a zero-value T paired with nil error would be
+    indistinguishable from "successfully decoded a struct of all zero fields".
+    The sentinel disambiguates. Compare with errors.Is so the check survives
+    wrapping.
+
+Example of the [Decoder.One] no-match check:
+
+	v, err := dec.One(input)
+	if errors.Is(err, regextra.ErrNoMatch) {
+	    // no match — handle as data absence, not failure
+	}
+
+[Decoder.All] and [Decoder.Iter] don't have the ambiguity problem — an empty
+slice and a zero-iteration range are unambiguous — so they follow the same
+"no match is not an error" convention as [UnmarshalAll].
+
+For [FindAllNamed], the nil-vs-empty-slice split is a separate signal:
+
+  - nil — the group name is not declared on the regex (likely a typo; consider
+    [Validate] at startup to catch this).
+  - []string{} — the group is declared but the regex has no matches in the
+    target (data absence — iterate over zero or more).
+
+This distinction is the only place in the no-match table where a single function
+returns two different no-match shapes; everywhere else the no-match form is
+fixed regardless of why the match failed.
+
 # Stability
 
 regextra is pre-v1 and follows SemVer. Patch releases are fixes only. Minor
@@ -162,6 +220,9 @@ func NamedGroups(re *regexp.Regexp, target string) map[string]string {
 // is a slice of all matches for that group. This handles patterns where the same
 // group name appears multiple times.
 //
+// On no match, returns an empty (non-nil) map. See the package doc's
+// "No-match behavior" section for the full cross-API contract.
+//
 // Example:
 //
 //	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
@@ -196,6 +257,9 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 // When named groups overlap (nesting), the outermost-named group whose
 // span is encountered first wins; inner groups inside an already-replaced
 // span are not substituted.
+//
+// On no match, returns target unchanged. See the package doc's
+// "No-match behavior" section for the full cross-API contract.
 //
 // Example:
 //

@@ -55,10 +55,15 @@ func parseTime(value string) (time.Time, error) {
 //   - Supports type conversion for int, int64, float64, and bool
 //   - Unexported fields are ignored
 //
+// On no match, Unmarshal returns nil and leaves *v unchanged — no match is data
+// absence, not a failure. Callers who need to distinguish "matched" from
+// "didn't match" should inspect their struct after the call, or use
+// [Decoder.One] which signals no-match via [ErrNoMatch]. See the package doc's
+// "No-match behavior" section for the full cross-API contract.
+//
 // Returns an error if:
 //   - v is not a pointer to a struct
-//   - The pattern does not match the target string
-//   - Type conversion fails
+//   - Type conversion fails on a matched group
 //
 // Example:
 //
@@ -103,8 +108,10 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 // UnmarshalAll extracts all occurrences of the regex pattern from the target string
 // and unmarshals them into a slice of structs. The slice is cleared before populating.
 //
-// v must be a pointer to a slice of structs. If no matches are found, the slice will
-// be empty (length 0).
+// v must be a pointer to a slice of structs. On no matches, UnmarshalAll returns
+// nil and sets the slice length to 0 — no match is data absence, not a failure.
+// See the package doc's "No-match behavior" section for the full cross-API
+// contract.
 //
 // Example:
 //

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **No-match contract documented.** Added a "No-match behavior" section to the package doc (visible on pkg.go.dev) covering every public function's no-match return. Locks in the intentional asymmetry — `Unmarshal` returns `nil`, `Decoder.One` returns `ErrNoMatch` — as v1 contract, with the rationale spelled out (the `(T, error)` return shape would otherwise make no-match indistinguishable from "decoded a struct of all zero fields"). Per-function docstrings (`Unmarshal`, `UnmarshalAll`, `AllNamedGroups`, `Replace`, `Decoder.One`) cross-reference the canonical section. Behavior unchanged. (re-ne3)
+  - Drive-by fix: `Unmarshal`'s godoc previously claimed it "returns an error if the pattern does not match the target string" — the implementation has always returned `nil` on no match. Docstring now matches behavior.
+
 ## [0.5.0] - 2026-04-26
 
 The architectural perf release. Adds `Decoder[T]` — a typed, regex-bound unmarshaler that compiles its decode plan once and reuses it across calls. **~45% faster on simple-struct decode and ~37% faster on streaming log-line iteration** vs the existing free-function `Unmarshal` / `UnmarshalAll`.
