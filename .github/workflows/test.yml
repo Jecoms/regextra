@@ -90,7 +90,9 @@ jobs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20
       with:
-        version: latest
+        # Pin instead of `latest` so a new golangci-lint release can't turn
+        # CI red without a corresponding bump PR.
+        version: v2.12.1
 
   vet:
     name: Vet
