@@ -117,6 +117,44 @@ This distinction is the only place in the no-match table where a single function
 returns two different no-match shapes; everywhere else the no-match form is
 fixed regardless of why the match failed.
 
+# Tag grammar
+
+The `regex:"..."` struct tag uses a JSON-encoding-style grammar: the first
+comma-separated piece is the group name; each subsequent piece is a key=value
+option. Currently recognized keys:
+
+	default=<value>           Any field type. Substituted when the named
+	                          group is undeclared on the regex or its match
+	                          is empty. Goes through the same type
+	                          conversion as a real match.
+	layout=<go-time-layout>   time.Time only. Used exclusively, instead of
+	                          the default RFC3339-and-friends fallback list.
+
+`regex:""` and `regex:"-"` both signal "no name" — fall back to the field's
+own name for matching.
+
+Two forward-compatibility rules in [parseFieldTag] are part of the v1 contract:
+
+  - Unknown key=value pairs are preserved, not rejected. The parser stores
+    every key=value pair regardless of whether the key is currently
+    recognized, so a future minor release can introduce additional option
+    keys without a parser change. Adding a new option key is therefore not
+    a breaking change. Callers must not rely on the parser rejecting
+    unknown keys; pin a minor version range if you need a specific
+    recognized set.
+
+  - Lone tokens (no `=`) are silently ignored. Today, `regex:"name,foo"`
+    parses as (name="name", opts=nil) — the `foo` token is dropped. This
+    slot is reserved for future flag-style options (e.g. `required`; see
+    ROADMAP.md). A later minor release may start recognizing specific lone
+    tokens and giving them meaning, so adding `regex:"name,foo"` today is a
+    no-op but may stop being one. Callers must not rely on lone tokens
+    remaining inert.
+
+The two rules together are how the tag grammar grows compatibly: a new
+option ships as either an additional key=value pair (orthogonal to today's
+grammar) or a recognized flag token (claiming a previously-ignored slot).
+
 # Stability
 
 regextra is pre-v1 and follows SemVer. Patch releases are fixes only. Minor
