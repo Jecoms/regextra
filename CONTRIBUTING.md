@@ -132,23 +132,55 @@ go test -bench=. -benchmem
 - **Breaking changes**: Clearly document in PR
 
 ### Commit Message Format
-Use conventional commits:
-```
-feat: add new feature
-fix: resolve bug
-chore: update dependencies
-refactor: improve code structure
-docs: update documentation
-test: add missing tests
-```
 
-Examples:
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for
+commit subjects. Because `main` is squash-merged, **the PR title becomes the
+squashed commit subject**, so PR titles must follow the same format. A GitHub
+Action (`.github/workflows/commitlint.yml`) validates the PR title on every PR.
+
+**Required shape:**
+```
+<type>(<optional-scope>)!: <subject>
+```
+- `<type>` — one of the allowed types in the table below
+- `(<scope>)` — optional; lowercase `[a-z0-9_./-]`, e.g. `(unmarshal)`, `(deps)`, `(ci)`
+- `!` — optional; marks a breaking change
+- `<subject>` — short, imperative description (no trailing period)
+
+**Allowed types:**
+
+| Type       | Use for                                                  |
+|------------|----------------------------------------------------------|
+| `feat`     | New user-facing feature or public API addition           |
+| `fix`      | Bug fix in existing behavior                             |
+| `perf`     | Performance improvement (no behavior change)             |
+| `refactor` | Code restructuring without behavior or API change        |
+| `style`    | Formatting, whitespace, comments — no code change        |
+| `test`     | Adding or updating tests                                 |
+| `docs`     | Documentation only (README, godoc, CONTRIBUTING, etc.)   |
+| `build`    | Build system, `go.mod`, dependencies that ship to users  |
+| `ci`       | CI configuration and scripts (`.github/workflows`, etc.) |
+| `chore`    | Routine maintenance that doesn't fit elsewhere           |
+| `revert`   | Reverts a previous commit                                |
+
+**Examples:**
 ```
 feat: add UnmarshalAll function for multiple matches
-fix: handle nil pointer in Unmarshal validation
-chore: update golangci-lint config to v2
-refactor: apply Go 1.24 best practices
+feat(decoder): add Decoder[T].Iter for range-over-func streaming
+fix(unmarshal): handle nil destination pointer
+fix!: rename Decode to Unmarshal (breaking)
+perf: avoid allocation in hot path of FindNamed
+refactor: split main.go into regextra.go + unmarshal.go
+test: add fuzz tests for Unmarshal
+docs: expand package doc for pkg.go.dev landing
+build(deps): bump golang.org/x/tools to v0.30
+ci: pin golangci-lint version
+chore(deps): bump actions/checkout from 5.0.0 to 6.0.2
+revert: revert "feat: add experimental decoder cache"
 ```
+
+**Breaking changes:** Add `!` after the type/scope (e.g. `feat!:` or
+`feat(api)!:`) and explain the break in the PR body.
 
 ## Getting Help
 
