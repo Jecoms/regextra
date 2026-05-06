@@ -40,7 +40,8 @@ By use case:
   - Pull one named group from one match: [FindNamed]
   - Pull one named group across all matches: [FindAllNamed]
   - Pull every named group from one match (map): [NamedGroups]
-  - Pull every named group across all matches (map of slices): [AllNamedGroups]
+  - Pull every named group from one match, keeping every value when a group
+    name is reused inside the pattern (map of slices): [AllNamedGroups]
   - Substitute named-group spans by name: [Replace]
   - Assert at startup that required groups are declared: [Validate]
   - Decode one match into a struct: [Unmarshal]
@@ -211,8 +212,10 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 //	// words = []string{"alpha", "beta", "gamma"}
 //
 // For a single match, prefer [FindNamed] which returns (value, ok).
-// To collect every named group's values across all matches, use
-// [AllNamedGroups].
+// To pull every named group from one match (with duplicate-name handling),
+// use [AllNamedGroups]. Despite the "All" prefix, AllNamedGroups operates on
+// a single match — it does not iterate matches across the target the way
+// FindAllNamed does.
 func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
 	index := re.SubexpIndex(groupName)
 	if index == -1 {
@@ -254,18 +257,34 @@ func NamedGroups(re *regexp.Regexp, target string) map[string]string {
 	return result
 }
 
-// AllNamedGroups returns a map where each key is a named capture group and the value
-// is a slice of all matches for that group. This handles patterns where the same
-// group name appears multiple times.
+// AllNamedGroups operates on a single match and returns every value of every
+// named capture group, keyed by group name. Each value is a slice because Go's
+// regexp package allows the same group name to appear more than once in a
+// pattern; AllNamedGroups preserves every occurrence in left-to-right order.
+// Groups that appear once still get a one-element slice.
+//
+// The leading "All" refers to all named groups in one match — not to all
+// matches across the target. Internally the function calls FindStringSubmatch,
+// so only the first match contributes values. To collect every value of a
+// single named group across every match in the target, use [FindAllNamed].
+// There is no current function that returns every named group across every
+// match (i.e. []map[string]string); the unmarshal path ([UnmarshalAll],
+// [Decoder.All], [Decoder.Iter]) is the typed equivalent.
 //
 // On no match, returns an empty (non-nil) map. See the package doc's
 // "No-match behavior" section for the full cross-API contract.
 //
-// Example:
+// Example — duplicate group names (the use case this function exists for):
 //
 //	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
 //	allGroups := regextra.AllNamedGroups(re, "hello world")
 //	// allGroups = map[string][]string{"word": []string{"hello", "world"}}
+//
+// Example — distinct group names (each slice has one element):
+//
+//	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+//	allGroups := regextra.AllNamedGroups(re, "Alice 30")
+//	// allGroups = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
 func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 	result := make(map[string][]string)
 

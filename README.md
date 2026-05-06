@@ -108,7 +108,7 @@ words := regextra.FindAllNamed(re, "alpha beta gamma", "word")
 // words = []string{"alpha", "beta", "gamma"}
 ```
 
-For a single match, prefer `FindNamed`. To collect every named group's values across all matches, use `AllNamedGroups`.
+For a single match, prefer `FindNamed`. To pull every named group from one match — including patterns where the same name is declared more than once — use `AllNamedGroups`. Despite the "All" prefix, `AllNamedGroups` operates on a single match; it is not the all-matches counterpart of `FindAllNamed`.
 
 ### `NamedGroups(re *regexp.Regexp, target string) map[string]string`
 
@@ -124,14 +124,22 @@ groups := regextra.NamedGroups(re, "Date: 2025-10-04")
 
 ### `AllNamedGroups(re *regexp.Regexp, target string) map[string][]string`
 
-Extract all values for each named capture group, handling duplicate group names within a single match.
+Operates on a **single match** and returns every value of every named capture group, keyed by group name. Each value is a slice because Go's `regexp` allows the same group name to appear more than once in a pattern — `AllNamedGroups` preserves every occurrence in left-to-right order. Groups that appear once still get a one-element slice.
+
+The leading "All" refers to **all named groups in one match** — not to all matches across the target. Use `FindAllNamed` to collect a single named group across every match. There is currently no function that returns every named group across every match (`[]map[string]string`); the unmarshal path (`UnmarshalAll`, `Decoder.All`, `Decoder.Iter`) is the typed equivalent.
 
 Returns an empty map if no match is found.
 
 ```go
+// Duplicate group names — the use case this function exists for:
 re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
 allGroups := regextra.AllNamedGroups(re, "one two three")
 // allGroups = map[string][]string{"word": []string{"one", "two", "three"}}
+
+// Distinct group names — each slice has one element:
+re = regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+allGroups = regextra.AllNamedGroups(re, "Alice 30")
+// allGroups = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
 ```
 
 ### `Replace(re *regexp.Regexp, target string, replacements map[string]string) string`
