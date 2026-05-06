@@ -41,18 +41,22 @@ Documented behavior already covers the no-match case. No action.
 
 ### `AllNamedGroups(re *regexp.Regexp, target string) map[string][]string`
 
-**Verdict: Change before v1 (filed: see "Open blockers" below).**
+**Verdict: Keep. Docstring + README rewritten to lead with the duplicate-group-name use case (re-zwj).**
 
-The function name reads as "all matches across the target", but the implementation calls `FindStringSubmatch` (single match) and the slice values come from duplicate-group-name handling within that one match. The example in the doc comment makes this obvious if you read carefully — `(?P<word>\w+) (?P<word>\w+)` against `"hello world"` yields `{"word": ["hello", "world"]}` because `word` is declared twice in the pattern, not because there are two matches in the string.
+The function name reads as "all matches across the target" on first glance, but the implementation calls `FindStringSubmatch` (single match) and the slice values come from duplicate-group-name handling within that one match. The leading "All" refers to **all named groups in one match**, not to all matches in the target — the misreading comes from analogy with `FindAllNamed`, which *is* an all-matches function.
 
-This is a v1 concern because:
+The three options considered pre-v1 were: (1) rename to something like `MultiGroupValues`, (2) add an explicit `AllNamedGroupsAcrossMatches` so the asymmetry is visible from the API surface, (3) keep the name and rewrite the docs to lead with the duplicate-group-name use case.
 
-1. The name will surprise users who expect `AllNamedGroups` to be the "all matches" counterpart of `NamedGroups`. (`FindAllNamed` is the all-matches counterpart of `FindNamed`; the naming pair would suggest symmetry that doesn't hold.)
-2. The "right" all-matches-all-groups function — `[]map[string]string` shape — does not exist yet, and adding it post-v1 would force us to either keep the misleading name or live with both.
+**Resolution: option 3.** Reasoning:
 
-**Decision needed pre-v1:** rename to something like `MultiGroupValues` / `RepeatedNamedGroups`, OR add an explicit `AllNamedGroupsAcrossMatches` (or similar) so the asymmetry is visible from the API surface, OR commit to the current name and lock in a docstring rewrite that leads with the duplicate-group-name use case.
+- The name is technically correct — every named group in the match is returned. The misreading is a naming-convention collision with `FindAllNamed`, not a semantic error.
+- The roadmap does not commit to an all-matches-all-groups function; the typed unmarshal path (`UnmarshalAll`, `Decoder.All`, `Decoder.Iter`) is the equivalent surface for that need. Without that future function, the asymmetry concern is hypothetical.
+- Renaming pre-v1 is allowed but has a real cost for existing adopters; docs lock-in matches the precedent set by the other v1-readiness blockers (`re-c4f` tag grammar, `re-ne3` no-match contract) where behavior was correct and only the contract needed pinning.
+- If a future minor adds the `[]map[string]string` shape, it can pick a name that doesn't collide (e.g. `MatchedGroups`, `EachMatchNamedGroups`) — `AllNamedGroups` does not poison the namespace, only the analogy with `FindAllNamed`.
 
-Filed as `re-zwj` (see Open blockers).
+The rewritten docstring on `AllNamedGroups` and the README's reference entry now state explicitly: operates on a single match, "All" refers to all named groups not all matches, and cross-reference `FindAllNamed` and the unmarshal path for the related shapes. The cross-reference from `FindAllNamed`'s docstring is also updated to call out the asymmetry rather than imply symmetry.
+
+Locked in for v1.
 
 ### `Replace(re *regexp.Regexp, target string, replacements map[string]string) string`
 
@@ -262,7 +266,7 @@ Errors today are formatted strings prefixed `"regextra.Compile: ..."`. No `error
 
 These are the items where v1.0 cannot ship until a decision lands. Filed against v0.5.x or v0.6.x — not v1.0 itself, per the bead's acceptance criteria.
 
-1. **`AllNamedGroups` naming clarity** (`re-zwj`) — rename or unambiguous doc rewrite. See Functions section above.
+1. ~~**`AllNamedGroups` naming clarity** (`re-zwj`) — rename or unambiguous doc rewrite. See Functions section above.~~ **Resolved**: option 3 (docs lock-in). Docstring + README rewritten to lead with the duplicate-group-name use case; `FindAllNamed`'s cross-reference updated to call out the asymmetry. See Functions section.
 2. **Tag-grammar reservation policy** (`re-c4f`) — explicit pre-v1 documentation that unknown keys are preserved (forward-compat) and lone tokens are silently ignored (reserved for future flag promotion). See Tag grammar section.
 3. **No-match contract documentation** (`re-ne3`) — single canonical doc page (or expanded package doc) covering the asymmetry. See No-match contract section.
 
