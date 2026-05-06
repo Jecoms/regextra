@@ -21,10 +21,10 @@ Specific issues are tracked in the [issue tracker](https://github.com/Jecoms/reg
 
 v1.0 is the API-stability promise: post-v1, breaking changes ship in the next major version. The gating work:
 
-- **API stability review** — full audit of the public surface (function signatures, exported types, tag grammar, error sentinels) for anything we'd regret committing to. This is the single hard gate on v1.0.
-- **Documentation polish** — package doc on pkg.go.dev as the canonical API reference, README slimmed to quick-start + showcase, examples folder.
+- **API stability review** — complete. The full audit lives in [docs/v1-readiness.md](./docs/v1-readiness.md); every public symbol carries a verdict. The three "change before v1" blockers from that review (`AllNamedGroups` naming clarity, tag-grammar reservation policy, no-match contract) have all been resolved via documentation lock-ins — see the [CHANGELOG](./CHANGELOG.md).
+- **Documentation polish** — pkg.go.dev landing has been expanded and the README's [Stability](./README.md#stability) section spells out what "breaking" means. Remaining nice-to-haves: a trimmed README and a dedicated examples folder. Doc polish does not block the v1 stamp.
 
-What this means for adopters: pre-v1 the package follows SemVer with breaking changes signaled by minor bumps. After v1.0, breaking changes signal the next major version. The README's Stability section will spell out the precise definition of "breaking" once it lands as part of the v1.0-readiness docs.
+What this means for adopters: pre-v1 the package follows SemVer with breaking changes signaled by minor bumps. After v1.0, breaking changes signal the next major version.
 
 ## Backlog
 
