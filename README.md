@@ -214,6 +214,13 @@ type LogLine struct {
 }
 ```
 
+**Forward-compat rules (v1 contract):**
+
+- **Unknown `key=value` pairs are preserved, not rejected.** Adding a new option key in a future minor release is not a breaking change. Don't rely on the parser rejecting unknown keys — pin a minor version range if you need a specific recognized set.
+- **Lone tokens (no `=`) are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (e.g. `required` — see [ROADMAP.md](./ROADMAP.md)); a later minor may start recognizing specific lone tokens. Don't rely on lone tokens remaining inert.
+
+See the package doc's **Tag grammar** section on [pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra) for the canonical statement.
+
 ### `RegexUnmarshaler` interface
 
 Mirror of `encoding.TextUnmarshaler` for regextra's unmarshal path. When a destination field's pointer type satisfies this interface, `Unmarshal` (and `UnmarshalAll`) call `UnmarshalRegex` with the matched group value instead of running the built-in string/int/uint/float/bool conversion.

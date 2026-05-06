@@ -222,11 +222,9 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 }
 
 // parseFieldTag parses a `regex:"name,key=value,key=value"` struct tag into
-// the group name and an options map. The grammar is intentionally
-// json/encoding-style: the first comma-separated piece is the name; each
-// subsequent piece is a `key=value` pair (lone tokens without `=` are ignored,
-// not promoted to a flag, since regextra's option set is small enough that
-// flags-with-no-value haven't been needed).
+// the group name and an options map. The grammar is JSON-encoding-style: the
+// first comma-separated piece is the name; each subsequent piece is a
+// `key=value` pair.
 //
 // Currently recognized option keys (case-sensitive):
 //   - default — value substituted when the named group is not declared on the
@@ -234,9 +232,17 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 //   - layout  — for time.Time fields only: a single time.Parse layout used
 //     instead of the default fallback list.
 //
-// Unknown keys are preserved in the returned map so future option additions
-// don't need to touch the parser. `regex:""` and `regex:"-"` both signal
-// "no name", returning "" and a nil options map.
+// Forward-compat rules (locked in as v1 contract — see the package doc's
+// "Tag grammar" section for the full statement and rationale):
+//   - Unknown key=value pairs are preserved in the returned map so future
+//     option additions don't need to touch the parser; adding a new option
+//     key is therefore not a breaking change.
+//   - Lone tokens without `=` are silently ignored today; the slot is
+//     reserved for future flag-style options (e.g. `required`), so callers
+//     must not rely on lone tokens remaining inert.
+//
+// `regex:""` and `regex:"-"` both signal "no name", returning "" and a nil
+// options map.
 func parseFieldTag(field reflect.StructField) (name string, opts map[string]string) {
 	tag := field.Tag.Get("regex")
 	if tag == "" || tag == "-" {
