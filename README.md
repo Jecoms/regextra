@@ -17,17 +17,13 @@ go get github.com/jecoms/regextra@latest
 
 ## Stability
 
-`regextra` is pre-v1 and follows SemVer. The exact rules:
+`regextra` is at v1 and follows strict SemVer:
 
-**Pre-v1 (current)**
+- Breaking changes ship in the next major version (`v2.0.0`), never in a minor or patch.
+- Minor releases (`v1.x.0`) add features.
+- Patch releases (`v1.x.y`) are fixes only.
 
-- Patch releases (`v0.x.y`) are fixes only — never breaking.
-- Minor releases (`v0.x.0`) may add features and may include breaking changes. Breaking changes are called out in the [CHANGELOG](./CHANGELOG.md).
-- The path to v1.0 (and what "v1" commits to) is in [ROADMAP.md](./ROADMAP.md).
-
-**Post-v1 (future)**
-
-- Strict SemVer. Breaking changes ship in the next major version, never in a minor or patch.
+The audit that pinned every public surface as v1 contract lives in [docs/v1-readiness.md](./docs/v1-readiness.md). The forward look is in [ROADMAP.md](./ROADMAP.md).
 
 **What counts as breaking**
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-05
+
+The API-stability stamp. Every public surface in `regextra.go`, `unmarshal.go`, and `decoder.go` was audited by the v1-readiness review (`docs/v1-readiness.md`) and carries a documented `Keep` verdict. The three "change before v1" blockers from that review (`AllNamedGroups` naming, tag-grammar reservation policy, no-match contract) all resolved as documentation lock-ins — every behavior in the v0.5.0 release ships unchanged into v1.0.0.
+
+**The promise.** Post-v1, breaking changes ship in the next major version, never in a minor or patch. Adopters can pin `v1` and follow minor/patch updates without re-reading release notes for migration steps. See [README §Stability](./README.md#stability) for the precise definition of "breaking" and the non-breaking change set (additions, new tag-option keys, additional field types, error-message wording).
+
+**No code changes** vs `v0.5.0`. The release exists to mark the stability commitment and to land the documentation that locks in pre-v1 contracts as v1 contracts.
+
 ### Documentation
 
 - **`AllNamedGroups` naming clarified for v1.** Rewrote the `AllNamedGroups` docstring and the README's reference entry to lead with the duplicate-group-name use case and to state explicitly that the function operates on a single match — the leading "All" refers to all named groups in one match, not to all matches in the target. `FindAllNamed`'s cross-reference now calls out the asymmetry rather than implying symmetry. The package doc's "API at a glance" entry was also corrected (it previously read "every named group across all matches", which inverts the actual behavior). Resolution of the `re-zwj` v1 blocker — option 3 (lock in current name, fix the docs) chosen over rename or new helper, on the grounds that the name is technically correct, the roadmap does not commit to a future `[]map[string]string` shape, and rename pre-v1 has real adopter cost. Behavior unchanged. (re-zwj)
