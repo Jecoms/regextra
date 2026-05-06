@@ -4,7 +4,9 @@ A high-level view of where `regextra` is heading. The [issue tracker](https://gi
 
 ## Current release
 
-**v0.5.0** — typed cached decode (`Compile[T]` / `Decoder[T]`) with streaming via `Decoder.Iter` (range-over-func). Roughly half the time and half the allocations of `Unmarshal` for repeated decode of the same shape; `Iter` skips slice allocation entirely for streaming consumers.
+**v1.0.0** — the API-stability stamp. Every public surface audited by the [v1-readiness review](./docs/v1-readiness.md) and pinned as v1 contract. No behavior changes vs v0.5.0; the release exists to mark the stability commitment.
+
+What that means for adopters: post-v1, breaking changes ship only in the next major version (`v2.0.0`). Pin `v1` and follow minor/patch updates without re-reading release notes for migration steps. See the [README's Stability section](./README.md#stability) for the precise definition of "breaking".
 
 See the [CHANGELOG](./CHANGELOG.md) for the full history.
 
@@ -15,16 +17,14 @@ Theme: **make the unmarshal contract more expressive without expanding the API s
 - Tag-derived required-group validation — let callers mark a struct field as required directly on its `regex:"name,required"` tag, replacing the separate `Validate` call for the common case.
 - Possibly: `Encoder[T]` for typed round-trip via template syntax — symmetric counterpart to `Decoder[T]` for callers building strings from typed structs.
 
-Specific issues are tracked in the [issue tracker](https://github.com/Jecoms/regextra/issues).
+Additive nice-to-haves identified by the v1-readiness review (post-v1, non-breaking):
 
-## Working toward v1.0
+- `ReplaceFirst` for one-match substitution (symmetric to `Replace`).
+- Typed `*ValidationError` so callers can `errors.As` instead of parsing message text.
+- Sentinel errors for `Compile` / `MustCompile` failure categories.
+- `Decoder.Regexp() *regexp.Regexp` accessor for callers that want their own match-finding while reusing the typed decode plan.
 
-v1.0 is the API-stability promise: post-v1, breaking changes ship in the next major version. The gating work:
-
-- **API stability review** — complete. The full audit lives in [docs/v1-readiness.md](./docs/v1-readiness.md); every public symbol carries a verdict. The three "change before v1" blockers from that review (`AllNamedGroups` naming clarity, tag-grammar reservation policy, no-match contract) have all been resolved via documentation lock-ins — see the [CHANGELOG](./CHANGELOG.md).
-- **Documentation polish** — pkg.go.dev landing has been expanded and the README's [Stability](./README.md#stability) section spells out what "breaking" means. Remaining nice-to-haves: a trimmed README and a dedicated examples folder. Doc polish does not block the v1 stamp.
-
-What this means for adopters: pre-v1 the package follows SemVer with breaking changes signaled by minor bumps. After v1.0, breaking changes signal the next major version.
+These ship when concrete adopter demand surfaces. Specific issues are tracked in the [issue tracker](https://github.com/Jecoms/regextra/issues).
 
 ## Backlog
 
