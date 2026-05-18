@@ -34,7 +34,7 @@ jobs:
           go-version: '1.24'
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7
+        uses: github/codeql-action/init@9e0d7b8d25671d64c341c19c0152d693099fb5ba
         with:
           languages: go
 
@@ -42,6 +42,6 @@ jobs:
         run: go build ./...
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7
+        uses: github/codeql-action/analyze@9e0d7b8d25671d64c341c19c0152d693099fb5ba
         with:
           category: '/language:go'
