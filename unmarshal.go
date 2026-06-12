@@ -400,25 +400,28 @@ func setFieldValue(field reflect.Value, value string, opts map[string]string) er
 		return nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		intVal, err := strconv.ParseInt(value, 10, 64)
+		// Parse at the field's actual bit width so out-of-range values error
+		// instead of silently truncating on SetInt (same approach as
+		// encoding/json).
+		intVal, err := strconv.ParseInt(value, 10, field.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("cannot convert %q to int: %w", value, err)
+			return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
 		}
 		field.SetInt(intVal)
 		return nil
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		uintVal, err := strconv.ParseUint(value, 10, 64)
+		uintVal, err := strconv.ParseUint(value, 10, field.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("cannot convert %q to uint: %w", value, err)
+			return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
 		}
 		field.SetUint(uintVal)
 		return nil
 
 	case reflect.Float32, reflect.Float64:
-		floatVal, err := strconv.ParseFloat(value, 64)
+		floatVal, err := strconv.ParseFloat(value, field.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("cannot convert %q to float: %w", value, err)
+			return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
 		}
 		field.SetFloat(floatVal)
 		return nil
