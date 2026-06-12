@@ -158,11 +158,11 @@ grammar) or a recognized flag token (claiming a previously-ignored slot).
 
 # Stability
 
-regextra is pre-v1 and follows SemVer. Patch releases are fixes only. Minor
-releases may add features and may include breaking changes (called out in the
-CHANGELOG). Post-v1, breaking changes will ship in the next major version.
-See ROADMAP.md and the README's Stability section for the precise contract,
-including what does and does not count as breaking.
+regextra is at v1 and follows strict SemVer. Patch releases are fixes only.
+Minor releases add features without breaking changes. Breaking changes ship
+in the next major version, never in a minor or patch. See ROADMAP.md and the
+README's Stability section for the precise contract, including what does and
+does not count as breaking.
 
 # More
 
