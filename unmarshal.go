@@ -54,6 +54,9 @@ func parseTime(value string) (time.Time, error) {
 //   - Falls back to case-insensitive field name match
 //   - Supports type conversion for int, int64, float64, and bool
 //   - Unexported fields are ignored
+//   - A group that did not participate in the match (e.g. an optional group),
+//     or that matched an empty span, leaves the field unchanged — unless the
+//     field has a `default=` tag option, which substitutes instead
 //
 // On no match, Unmarshal returns nil and leaves *v unchanged — no match is data
 // absence, not a failure. Callers who need to distinguish "matched" from
@@ -194,15 +197,16 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 		// empty. Empty-match overlap is intentional: regexp returns "" both
 		// for non-participating optional groups and for groups that matched a
 		// zero-length span; treating both as "no useful value" matches caller
-		// expectations.
+		// expectations. With no default, an empty value skips the field
+		// entirely (leaving it unchanged) rather than feeding "" to the type
+		// converter — mirroring Decoder, so an optional group that didn't
+		// participate is data absence, not a conversion failure.
 		if !found || value == "" {
-			if def, ok := opts["default"]; ok {
-				value = def
-				found = true
+			def, ok := opts["default"]
+			if !ok {
+				continue
 			}
-		}
-		if !found {
-			continue
+			value = def
 		}
 
 		// Set the field value with type conversion
