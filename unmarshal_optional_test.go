@@ -52,6 +52,20 @@ func TestUnmarshal_optionalGroupNotParticipating(t *testing.T) {
 		}
 	})
 
+	t.Run("participating empty-span group leaves field unchanged", func(t *testing.T) {
+		// `age` participates in the match here but with a zero-length span —
+		// distinct from not participating at all, yet the contract is the
+		// same: no default, no write, no conversion error.
+		emptySpanRe := regexp.MustCompile(`(?P<name>\w+):(?P<age>\d*)`)
+		p := person{Age: 99}
+		if err := Unmarshal(emptySpanRe, "Alice:", &p); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if p.Name != "Alice" || p.Age != 99 {
+			t.Errorf("got %+v, want {Name:Alice Age:99}", p)
+		}
+	})
+
 	t.Run("pre-populated field survives absent group", func(t *testing.T) {
 		p := person{Age: 99}
 		if err := Unmarshal(re, "Alice", &p); err != nil {

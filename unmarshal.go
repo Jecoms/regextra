@@ -52,7 +52,9 @@ func parseTime(value string) (time.Time, error) {
 //   - First checks the `regex:"groupname"` struct tag if provided (highest priority)
 //   - Falls back to exact field name match with capture group name
 //   - Falls back to case-insensitive field name match
-//   - Supports type conversion for int, int64, float64, and bool
+//   - Supports type conversion for string, bool, all int/uint widths,
+//     float32/float64, time.Time, time.Duration, and single-level pointers
+//     to any of these; types implementing [RegexUnmarshaler] convert themselves
 //   - Unexported fields are ignored
 //   - A group that did not participate in the match (e.g. an optional group),
 //     or that matched an empty span, leaves the field unchanged — unless the
@@ -192,21 +194,9 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 
 		// Try to find the value for this field
 		value, found := findGroupValue(groupName, fieldType.Name, groupValues)
-
-		// `default=` substitutes when the field has no match OR the match is
-		// empty. Empty-match overlap is intentional: regexp returns "" both
-		// for non-participating optional groups and for groups that matched a
-		// zero-length span; treating both as "no useful value" matches caller
-		// expectations. With no default, an empty value skips the field
-		// entirely (leaving it unchanged) rather than feeding "" to the type
-		// converter — mirroring Decoder, so an optional group that didn't
-		// participate is data absence, not a conversion failure.
-		if !found || value == "" {
-			def, ok := opts["default"]
-			if !ok {
-				continue
-			}
-			value = def
+		value, ok := resolveGroupValue(value, found, opts)
+		if !ok {
+			continue
 		}
 
 		// Set the field value with type conversion
@@ -266,6 +256,31 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
 	return name, opts
+}
+
+// resolveGroupValue decides what a field receives given its group's raw match
+// state: the matched value when one is usable, the `default=` option when not,
+// or nothing (ok=false, skip the field, leaving it unchanged).
+//
+// This is the single source of truth for the skip-or-default contract shared
+// by Unmarshal (populateStruct) and Decoder.decode — the two paths drifted on
+// exactly this logic once (issue #104), so it lives in one place now.
+//
+// `default=` substitutes when the field has no match OR the match is empty.
+// Empty-match overlap is intentional: regexp returns "" both for
+// non-participating optional groups and for groups that matched a zero-length
+// span; treating both as "no useful value" matches caller expectations. With
+// no default, an empty value skips the field entirely rather than feeding ""
+// to the type converter — an optional group that didn't participate is data
+// absence, not a conversion failure.
+func resolveGroupValue(value string, found bool, opts map[string]string) (string, bool) {
+	if found && value != "" {
+		return value, true
+	}
+	if def, ok := opts["default"]; ok {
+		return def, true
+	}
+	return "", false
 }
 
 // findGroupValue searches for the value in the group values map
