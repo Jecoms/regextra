@@ -359,7 +359,15 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 			}
 			spans = append(spans, span{start: s, end: e, repl: repl})
 		}
-		sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+		// Order by start; when spans start at the same offset (nested groups),
+		// the longer span sorts first so the documented "outermost wins" rule
+		// is enforced rather than left to sort-internals luck.
+		sort.SliceStable(spans, func(i, j int) bool {
+			if spans[i].start != spans[j].start {
+				return spans[i].start < spans[j].start
+			}
+			return spans[i].end > spans[j].end
+		})
 		for _, sp := range spans {
 			if sp.start < cursor {
 				continue // already covered (overlap with an earlier substitution)
