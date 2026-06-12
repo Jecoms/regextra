@@ -6,6 +6,7 @@ import (
 	"iter"
 	"reflect"
 	"regexp"
+	"strings"
 )
 
 // ErrNoMatch is returned by [Decoder.One] when the target string does not
@@ -186,27 +187,12 @@ func matchGroupName(re *regexp.Regexp, fieldName string) string {
 	if idx := re.SubexpIndex(fieldName); idx != -1 {
 		return fieldName
 	}
-	lowerField := lower(fieldName)
 	for _, n := range re.SubexpNames() {
-		if n != "" && lower(n) == lowerField {
+		if n != "" && strings.EqualFold(n, fieldName) {
 			return n
 		}
 	}
 	return ""
-}
-
-// lower is strings.ToLower without the import dependency for this file.
-// Cheap inline since we only call it during Compile, not in the hot path.
-func lower(s string) string {
-	out := make([]byte, len(s))
-	for i := range len(s) {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return string(out)
 }
 
 // One returns the result of decoding the first match of d's pattern in target.

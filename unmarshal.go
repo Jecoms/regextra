@@ -278,10 +278,11 @@ func findGroupValue(tagName, fieldName string, groupValues map[string]string) (s
 		return value, true
 	}
 
-	// Try case-insensitive match
-	lowerFieldName := strings.ToLower(fieldName)
+	// Try case-insensitive match. EqualFold avoids the per-comparison
+	// allocations of ToLower and is the same fold the Decoder's compile-time
+	// fallback uses, so the two paths can't disagree on what matches.
 	for groupName, value := range groupValues {
-		if strings.ToLower(groupName) == lowerFieldName {
+		if strings.EqualFold(groupName, fieldName) {
 			return value, true
 		}
 	}
