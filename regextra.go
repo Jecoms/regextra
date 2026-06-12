@@ -182,32 +182,43 @@ import (
 // FindNamed returns the value of the named capture group in the target string.
 // It returns the matched value and true if found, or empty string and false if not found.
 //
+// When the pattern reuses a group name (e.g. across alternation branches),
+// FindNamed returns the value of the last occurrence that participated in the
+// match — it does not trust re.SubexpIndex, which reports only the first
+// occurrence and would return the wrong value when a later branch is the one
+// that matched.
+//
 // Example:
 //
 //	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 //	name, ok := regextra.FindNamed(re, "Alice 30", "name")
 //	// name = "Alice", ok = true
 func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
-	index := re.SubexpIndex(groupName)
-	if index == -1 {
+	idxs := subexpIndexes(re, groupName)
+	if len(idxs) == 0 {
 		return "", false
 	}
 
-	// FindStringSubmatchIndex returns only the match offsets ([]int), so we can
-	// slice the one group we want out of target directly. FindStringSubmatch
+	// FindStringSubmatchIndex returns only the match offsets ([]int), so we
+	// slice the participating group out of target directly. FindStringSubmatch
 	// would additionally allocate a []string for every group just to discard
 	// all but one.
 	loc := re.FindStringSubmatchIndex(target)
 	if loc == nil {
 		return "", false
 	}
-	start, end := loc[2*index], loc[2*index+1]
-	if start < 0 {
-		// Group is declared but did not participate in the match; regexp's
-		// FindStringSubmatch would surface this as "" — preserve that.
-		return "", true
+	// A pattern may reuse a group name (e.g. across alternation branches); the
+	// last occurrence that participated in the match wins, and a
+	// non-participating occurrence is skipped. If no occurrence participated,
+	// value stays "" — matching FindStringSubmatch's "" for a declared but
+	// non-participating group.
+	value := ""
+	for _, idx := range idxs {
+		if start := loc[2*idx]; start >= 0 {
+			value = target[start:loc[2*idx+1]]
+		}
 	}
-	return target[start:end], true
+	return value, true
 }
 
 // FindAllNamed returns every value of the named capture group across all
@@ -226,25 +237,31 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 // use [AllNamedGroups]. Despite the "All" prefix, AllNamedGroups operates on
 // a single match — it does not iterate matches across the target the way
 // FindAllNamed does.
+//
+// When the pattern reuses a group name, each match contributes the value of
+// the occurrence that participated in that match, not blindly re.SubexpIndex's
+// first occurrence.
 func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
-	index := re.SubexpIndex(groupName)
-	if index == -1 {
+	idxs := subexpIndexes(re, groupName)
+	if len(idxs) == 0 {
 		return nil
 	}
-	// Index form returns []int offsets per match; we slice the single group out
-	// of target rather than have FindAllStringSubmatch build a [][]string of
-	// every group across every match only to read one column of it.
+	// Index form returns []int offsets per match; we slice the participating
+	// group out of target rather than have FindAllStringSubmatch build a
+	// [][]string of every group across every match only to read one column.
 	locs := re.FindAllStringSubmatchIndex(target, -1)
 	if len(locs) == 0 {
 		return []string{}
 	}
 	out := make([]string, len(locs))
 	for i, loc := range locs {
-		if s := loc[2*index]; s >= 0 {
-			out[i] = target[s:loc[2*index+1]]
+		// Last participating occurrence of the name in this match wins; a
+		// non-participating occurrence is skipped, leaving out[i] == "".
+		for _, idx := range idxs {
+			if start := loc[2*idx]; start >= 0 {
+				out[i] = target[start:loc[2*idx+1]]
+			}
 		}
-		// s < 0 → group did not participate in this match; leave out[i] == ""
-		// to match FindStringSubmatch's "" for a non-participating group.
 	}
 	return out
 }
@@ -252,26 +269,78 @@ func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
 // NamedGroups returns a map of all named capture groups and their matched values
 // from the target string. If no match is found, it returns an empty map.
 //
+// When the pattern reuses a group name (e.g. across alternation branches),
+// the value of the last occurrence that participated in the match wins; an
+// occurrence that did not participate never overwrites a participating
+// occurrence's value. A declared group that did not participate at all is
+// still present in the map, mapped to "".
+//
+// To see every occurrence rather than just the winning one, use
+// [AllNamedGroups] — but note it reports a non-participating occurrence and an
+// occurrence that matched an empty span identically (both as ""), so it cannot
+// be used to tell those two cases apart.
+//
 // Example:
 //
 //	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 //	groups := regextra.NamedGroups(re, "Alice 30")
 //	// groups = map[string]string{"name": "Alice", "age": "30"}
 func NamedGroups(re *regexp.Regexp, target string) map[string]string {
-	result := make(map[string]string)
-
-	matches := re.FindStringSubmatch(target)
-	if matches == nil {
-		return result
+	m := re.FindStringSubmatchIndex(target)
+	if m == nil {
+		return make(map[string]string)
 	}
+	// includeNonParticipating: NamedGroups surfaces every declared group,
+	// including ones that did not participate (mapped to ""). The Unmarshal
+	// path passes false so those don't reach typed-field conversion as "".
+	return namedGroupValues(re, target, m, true)
+}
 
-	for i, name := range re.SubexpNames() {
-		if i != 0 && name != "" {
-			result[name] = matches[i]
-		}
-	}
-
+// namedGroupValues builds the group-name→value map for one match, given the
+// match's index pairs from FindStringSubmatchIndex (or one element of
+// FindAllStringSubmatchIndex). Index pairs distinguish "did not participate"
+// (negative indices) from "matched an empty span", so when a pattern reuses a
+// group name a participating occurrence always wins and a non-participating
+// occurrence never clobbers it.
+//
+// includeNonParticipating controls what happens to a group name that never
+// participated in the match:
+//   - true ([NamedGroups]): the name is recorded as "" so callers see every
+//     declared group.
+//   - false (the [Unmarshal] / [UnmarshalAll] path): the name is omitted, so
+//     a non-participating optional group looks like "no value" to
+//     populateStruct — it is left at its zero value rather than handed "",
+//     which would fail conversion on a typed field. A duplicate that
+//     participates elsewhere still sets the key, so omitting here never drops
+//     a real value.
+func namedGroupValues(re *regexp.Regexp, target string, m []int, includeNonParticipating bool) map[string]string {
+	names := re.SubexpNames()
+	result := make(map[string]string, len(names))
+	fillNamedGroupValues(result, names, target, m, includeNonParticipating)
 	return result
+}
+
+// fillNamedGroupValues writes one match's group-name→value pairs into dst,
+// which the caller has already cleared. names is re.SubexpNames(), passed in so
+// a caller decoding many matches (UnmarshalAll) fetches it once and reuses one
+// map instead of allocating per match. m is the match's index pairs; see
+// [namedGroupValues] for the participation semantics and includeNonParticipating.
+func fillNamedGroupValues(dst map[string]string, names []string, target string, m []int, includeNonParticipating bool) {
+	for i, name := range names {
+		if i == 0 || name == "" {
+			continue
+		}
+		start, end := m[2*i], m[2*i+1]
+		if start < 0 {
+			if includeNonParticipating {
+				if _, ok := dst[name]; !ok {
+					dst[name] = ""
+				}
+			}
+			continue
+		}
+		dst[name] = target[start:end]
+	}
 }
 
 // AllNamedGroups operates on a single match and returns every value of every

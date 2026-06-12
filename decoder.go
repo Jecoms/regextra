@@ -45,9 +45,14 @@ type Decoder[T any] struct {
 type fieldDecoder struct {
 	// fieldIndex is the index into T's struct fields (StructField.Index[0]).
 	fieldIndex int
-	// groupIndex is the regex SubexpIndex for the named group; -1 means
-	// "no group declared, use default if present, otherwise skip."
-	groupIndex int
+	// groupIndexes holds the submatch index of every occurrence of the
+	// field's group name, in declaration order. Go's regexp allows the same
+	// group name to appear more than once in a pattern (e.g. across
+	// alternation branches), and only one occurrence participates in a given
+	// match — decode scans them all rather than trusting SubexpIndex's first
+	// occurrence. Empty means "no group declared, use default if present,
+	// otherwise skip."
+	groupIndexes []int
 	// opts is the parsed tag options map (e.g. {"default": "guest", "layout": "..."}).
 	// Nil if the field has no options.
 	opts map[string]string
@@ -112,10 +117,10 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 		}
 
 		_, hasDefault := opts["default"]
-		groupIdx := -1
+		var groupIdxs []int
 		if groupName != "" {
-			groupIdx = re.SubexpIndex(groupName)
-			if groupIdx == -1 && !hasDefault {
+			groupIdxs = subexpIndexes(re, groupName)
+			if len(groupIdxs) == 0 && !hasDefault {
 				// Missing group with no default IS a typo — fail at compile.
 				// With a default, missing group is intentional (the default
 				// always fires).
@@ -146,18 +151,32 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 
 		// Skip fields that have neither a group mapping nor a default —
 		// they'd be no-ops at decode time.
-		if groupIdx == -1 && !hasDefault {
+		if len(groupIdxs) == 0 && !hasDefault {
 			continue
 		}
 
 		d.fields = append(d.fields, fieldDecoder{
-			fieldIndex: i,
-			groupIndex: groupIdx,
-			opts:       opts,
+			fieldIndex:   i,
+			groupIndexes: groupIdxs,
+			opts:         opts,
 		})
 	}
 
 	return d, nil
+}
+
+// subexpIndexes returns the submatch index of every occurrence of the named
+// group on re, in declaration order. Unlike re.SubexpIndex, which reports
+// only the first occurrence, this captures duplicates so decode can find the
+// occurrence that actually participated in a match.
+func subexpIndexes(re *regexp.Regexp, name string) []int {
+	var idxs []int
+	for i, n := range re.SubexpNames() {
+		if i != 0 && n == name {
+			idxs = append(idxs, i)
+		}
+	}
+	return idxs
 }
 
 // matchGroupName returns the declared group name on re that matches fieldName
@@ -200,13 +219,13 @@ func lower(s string) string {
 // zero fields". Compare with errors.Is. See the package doc's "No-match
 // behavior" section for the full cross-API contract.
 func (d *Decoder[T]) One(target string) (T, error) {
-	matches := d.re.FindStringSubmatch(target)
+	matches := d.re.FindStringSubmatchIndex(target)
 	if matches == nil {
 		return d.zero, ErrNoMatch
 	}
 	var v T
 	rv := reflect.ValueOf(&v).Elem()
-	if err := d.decode(rv, matches); err != nil {
+	if err := d.decode(rv, target, matches); err != nil {
 		return v, err
 	}
 	return v, nil
@@ -217,14 +236,14 @@ func (d *Decoder[T]) One(target string) (T, error) {
 // error indicates a per-field conversion failure on one of the matches; the
 // slice up to that point may contain partially-decoded entries.
 func (d *Decoder[T]) All(target string) ([]T, error) {
-	allMatches := d.re.FindAllStringSubmatch(target, -1)
+	allMatches := d.re.FindAllStringSubmatchIndex(target, -1)
 	if len(allMatches) == 0 {
 		return []T{}, nil
 	}
 	out := make([]T, len(allMatches))
 	for i, matches := range allMatches {
 		rv := reflect.ValueOf(&out[i]).Elem()
-		if err := d.decode(rv, matches); err != nil {
+		if err := d.decode(rv, target, matches); err != nil {
 			return out[:i+1], fmt.Errorf("regextra.Decoder.All: match %d: %w", i, err)
 		}
 	}
@@ -255,11 +274,11 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 // For a single match with a sentinel ErrNoMatch, prefer [Decoder.One].
 func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
-		allMatches := d.re.FindAllStringSubmatch(target, -1)
+		allMatches := d.re.FindAllStringSubmatchIndex(target, -1)
 		for _, matches := range allMatches {
 			var v T
 			rv := reflect.ValueOf(&v).Elem()
-			err := d.decode(rv, matches)
+			err := d.decode(rv, target, matches)
 			if !yield(v, err) {
 				return
 			}
@@ -274,17 +293,33 @@ func (d *Decoder[T]) Pattern() string {
 }
 
 // decode walks the precomputed field plan against a single match's group
-// values and writes them into rv (the addressable reflect.Value of a T).
-func (d *Decoder[T]) decode(rv reflect.Value, matches []string) error {
+// indices and writes the values into rv (the addressable reflect.Value of a
+// T). matches is a FindStringSubmatchIndex-style index slice (or one element
+// of FindAllStringSubmatchIndex); target is the string those indices slice
+// into.
+func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) error {
 	for _, fd := range d.fields {
+		// Pick the value the same way the Unmarshal path does (see
+		// namedGroupValues): the last occurrence that participated in the
+		// match wins, even if it matched an empty span. A non-participating
+		// occurrence (negative start index) never overwrites a participating
+		// one. Index pairs are what make this possible — FindStringSubmatch's
+		// strings can't tell a participating-empty group from a
+		// non-participating one. The index slice always holds 2*(NumSubexp+1)
+		// entries, so 2*gi+1 is always in range.
 		var value string
 		var found bool
-		if fd.groupIndex >= 0 && fd.groupIndex < len(matches) {
-			value = matches[fd.groupIndex]
-			// regexp returns "" for non-participating groups; treat as not-found
-			// so the default-fallback logic below kicks in.
-			found = value != "" || fd.groupIndex == 0
+		for _, gi := range fd.groupIndexes {
+			start := matches[2*gi]
+			if start < 0 {
+				continue
+			}
+			value = target[start:matches[2*gi+1]]
+			found = true
 		}
+		// default= substitutes when no occurrence participated OR the winning
+		// value is empty — the same rule populateStruct applies on the
+		// Unmarshal path.
 		if !found || value == "" {
 			if def, ok := fd.opts["default"]; ok {
 				value = def

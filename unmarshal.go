@@ -87,22 +87,19 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 		return fmt.Errorf("regextra: Unmarshal requires a pointer to a struct, got pointer to %s", elem.Kind())
 	}
 
-	// Find the match
-	matches := re.FindStringSubmatch(target)
+	// Find the match. The Index variant distinguishes non-participating
+	// group occurrences from empty matches, which namedGroupValues needs to
+	// handle duplicate group names correctly.
+	matches := re.FindStringSubmatchIndex(target)
 	if matches == nil {
 		return nil // No match, but not an error
 	}
 
-	// Build a map of capture group names to their values
-	groupValues := make(map[string]string)
-	for i, name := range re.SubexpNames() {
-		if i != 0 && name != "" {
-			groupValues[name] = matches[i]
-		}
-	}
-
-	// Populate the struct fields
-	return populateStruct(elem, groupValues)
+	// Populate the struct fields. includeNonParticipating=false: a declared
+	// optional group that did not participate in the match is omitted rather
+	// than recorded as "", so populateStruct leaves the field at its zero
+	// value instead of feeding "" to a typed conversion (which would error).
+	return populateStruct(elem, namedGroupValues(re, target, matches, false))
 }
 
 // UnmarshalAll extracts all occurrences of the regex pattern from the target string
@@ -141,8 +138,10 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 		return fmt.Errorf("regextra: UnmarshalAll requires a slice of structs, got slice of %s", sliceElemType.Kind())
 	}
 
-	// Find all matches
-	allMatches := re.FindAllStringSubmatch(target, -1)
+	// Find all matches. The Index variant distinguishes non-participating
+	// group occurrences from empty matches, which namedGroupValues needs to
+	// handle duplicate group names correctly.
+	allMatches := re.FindAllStringSubmatchIndex(target, -1)
 	if len(allMatches) == 0 {
 		// Clear the slice and return (no matches is not an error)
 		elem.SetLen(0)
@@ -153,17 +152,16 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	// match. Reuse a single groupValues map (cleared each iteration) rather than
 	// allocating one per match, and size the result slice up front so each match
 	// decodes into place — avoiding the reflect.New + reflect.Append copy the
-	// previous append-grow loop paid per match.
+	// append-grow loop paid per match.
 	names := re.SubexpNames()
 	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
 	groupValues := make(map[string]string, len(names))
 	for idx, matches := range allMatches {
+		// includeNonParticipating=false (see Unmarshal): a non-participating
+		// optional group is omitted so its typed field stays zero, and the
+		// participating occurrence of a reused name wins.
 		clear(groupValues)
-		for i, name := range names {
-			if i != 0 && name != "" {
-				groupValues[name] = matches[i]
-			}
-		}
+		fillNamedGroupValues(groupValues, names, target, matches, false)
 		if err := populateStruct(newSlice.Index(idx), groupValues); err != nil {
 			return err
 		}

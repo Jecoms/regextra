@@ -26,11 +26,16 @@ func TestFindNamed(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:      "found second group",
+			// Two `second` groups, both participating: the last occurrence
+			// wins, consistent with NamedGroups (see TestNamedGroups,
+			// "duplicate names return last match"). FindNamed used to return
+			// the first occurrence ("two") via re.SubexpIndex; that disagreed
+			// with every other name-based reader and is the issue-105 bug.
+			name:      "found second group (duplicate name: last participating wins)",
 			pattern:   `(?P<first>one) (?P<second>two) (?P<second>again) three`,
 			target:    "one two again three",
 			groupName: "second",
-			want:      "two",
+			want:      "again",
 			wantFound: true,
 		},
 		{
