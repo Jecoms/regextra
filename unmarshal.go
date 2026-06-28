@@ -149,29 +149,24 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 		return nil
 	}
 
-	// Create a new slice with capacity for all matches
-	newSlice := reflect.MakeSlice(elem.Type(), 0, len(allMatches))
-
-	// Process each match
-	for _, matches := range allMatches {
-		// Build a map of capture group names to their values for this match
-		groupValues := make(map[string]string)
-		for i, name := range re.SubexpNames() {
+	// SubexpNames is identical for every match, so fetch it once instead of per
+	// match. Reuse a single groupValues map (cleared each iteration) rather than
+	// allocating one per match, and size the result slice up front so each match
+	// decodes into place — avoiding the reflect.New + reflect.Append copy the
+	// previous append-grow loop paid per match.
+	names := re.SubexpNames()
+	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
+	groupValues := make(map[string]string, len(names))
+	for idx, matches := range allMatches {
+		clear(groupValues)
+		for i, name := range names {
 			if i != 0 && name != "" {
 				groupValues[name] = matches[i]
 			}
 		}
-
-		// Create a new struct instance
-		structValue := reflect.New(sliceElemType).Elem()
-
-		// Populate the struct fields
-		if err := populateStruct(structValue, groupValues); err != nil {
+		if err := populateStruct(newSlice.Index(idx), groupValues); err != nil {
 			return err
 		}
-
-		// Append to the slice
-		newSlice = reflect.Append(newSlice, structValue)
 	}
 
 	// Set the slice to the new value
