@@ -26,6 +26,10 @@ permissions:
 jobs:
   benchmark:
     name: Benchmarks (Go 1.26)
+    # Don't run on fork PRs (no token/secret exposure); same-repo + push still run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
