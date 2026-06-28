@@ -13,8 +13,22 @@ import (
 // stopped matching (a typo'd pattern, a changed input) would make its benchmark
 // quietly measure the no-match path instead — a misleading regression-free
 // "win". This test fails loudly if a representative fixture drifts.
+//
+// The checks are grouped into one subtest per exported function so a drift is
+// attributed to the right surface (and so no single function trips the gocyclo
+// limit).
 func TestBenchmarkFixturesSane(t *testing.T) {
-	// FindNamed: match, undeclared group, and no-match shapes.
+	t.Run("FindNamed", checkFindNamedFixtures)
+	t.Run("FindAllNamed", checkFindAllNamedFixtures)
+	t.Run("NamedGroups", checkNamedGroupsFixtures)
+	t.Run("Replace", checkReplaceFixtures)
+	t.Run("Validate", checkValidateFixtures)
+	t.Run("Unmarshal", checkUnmarshalFixtures)
+	t.Run("UnmarshalAll/Decoder", checkDecoderFixtures)
+}
+
+// FindNamed: match, undeclared group, and no-match shapes.
+func checkFindNamedFixtures(t *testing.T) {
 	if v, ok := rx.FindNamed(bnFindRe, bnFindInput, "name"); !ok || v != "Alice" {
 		t.Errorf("FindNamed small = (%q,%v), want (Alice,true)", v, ok)
 	}
@@ -30,8 +44,10 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	if v, ok := rx.FindNamed(bnFindEndRe, bnFindEndIn, "value"); !ok || v != "final" {
 		t.Errorf("FindNamed largeMatchAtEnd = (%q,%v), want (final,true)", v, ok)
 	}
+}
 
-	// FindAllNamed: nil (undeclared) vs empty (no match) vs match-count scaling.
+// FindAllNamed: nil (undeclared) vs empty (no match) vs match-count scaling.
+func checkFindAllNamedFixtures(t *testing.T) {
 	if got := rx.FindAllNamed(bnFAllRe, bnFAll10, "missing"); got != nil {
 		t.Errorf("FindAllNamed undeclaredGroup = %v, want nil", got)
 	}
@@ -46,8 +62,10 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 			t.Errorf("FindAllNamed match count = %d, want %d", got, tc.want)
 		}
 	}
+}
 
-	// NamedGroups / AllNamedGroups: populated, no-match, and duplicate-name shapes.
+// NamedGroups / AllNamedGroups: populated, no-match, and duplicate-name shapes.
+func checkNamedGroupsFixtures(t *testing.T) {
 	if m := rx.NamedGroups(bnNGRe, bnNGIn); len(m) != 2 {
 		t.Errorf("NamedGroups twoGroups size = %d, want 2", len(m))
 	}
@@ -63,8 +81,10 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	if m := rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn); len(m["w"]) != 20 {
 		t.Errorf("AllNamedGroups manyDuplicates w count = %d, want 20", len(m["w"]))
 	}
+}
 
-	// Replace: substitution count and the two early-return passthroughs.
+// Replace: substitution count and the two early-return passthroughs.
+func checkReplaceFixtures(t *testing.T) {
 	if got := rx.Replace(bnRepEmailRe, bnRepMulti100In, bnRepDomainMap); strings.Count(got, "redacted") != 100 {
 		t.Errorf("Replace matches100 substitutions = %d, want 100", strings.Count(got, "redacted"))
 	}
@@ -74,16 +94,20 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	if got := rx.Replace(bnRepEmailRe, bnRepNoMatchIn, bnRepDomainMap); got != bnRepNoMatchIn {
 		t.Errorf("Replace noMatch changed target: %q", got)
 	}
+}
 
-	// Validate: present vs missing.
+// Validate: present vs missing.
+func checkValidateFixtures(t *testing.T) {
 	if err := rx.Validate(bnValRe, bnValPresent...); err != nil {
 		t.Errorf("Validate allPresentSmall = %v, want nil", err)
 	}
 	if err := rx.Validate(bnValManyRe, bnValManyMissing...); err == nil {
 		t.Error("Validate allMissingMany = nil, want error")
 	}
+}
 
-	// Unmarshal: a real decode, the no-match no-op, and the error path.
+// Unmarshal: a real decode, the no-match no-op, and the error path.
+func checkUnmarshalFixtures(t *testing.T) {
 	var s benchSimple
 	if err := rx.Unmarshal(benchSimpleRe, benchSimpleInput, &s); err != nil {
 		t.Fatalf("Unmarshal simpleThreeField error: %v", err)
@@ -103,8 +127,10 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	if err := rx.Unmarshal(benchTimeRe, benchTimeLastIn, &tm); err != nil || tm.TS.IsZero() {
 		t.Errorf("Unmarshal timeLastLayout = (%v, %v), want (nil, non-zero time)", err, tm.TS)
 	}
+}
 
-	// UnmarshalAll / Decoder: aligned 100-match corpus and the streaming count.
+// UnmarshalAll / Decoder: aligned 100-match corpus and the streaming count.
+func checkDecoderFixtures(t *testing.T) {
 	if n := strings.Count(benchBatch100Input, "Alice"); n != 100 {
 		t.Fatalf("benchBatch100Input has %d Alice tokens, want 100", n)
 	}

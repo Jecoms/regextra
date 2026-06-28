@@ -84,8 +84,8 @@ var (
 )
 
 func BenchmarkValidate(b *testing.B) {
-	benchCase(b, "allPresentSmall", func() { sinkErr = rx.Validate(bnValRe, bnValPresent...) })     // nil, no missing-list alloc
-	benchCase(b, "partialMissSmall", func() { sinkErr = rx.Validate(bnValRe, bnValPartial...) })    // 1 missing
+	benchCase(b, "allPresentSmall", func() { sinkErr = rx.Validate(bnValRe, bnValPresent...) })        // nil, no missing-list alloc
+	benchCase(b, "partialMissSmall", func() { sinkErr = rx.Validate(bnValRe, bnValPartial...) })       // 1 missing
 	benchCase(b, "allPresentMany", func() { sinkErr = rx.Validate(bnValManyRe, bnValManyPresent...) }) // 20-name set build + 20 hits
 	benchCase(b, "allMissingMany", func() { sinkErr = rx.Validate(bnValManyRe, bnValManyMissing...) }) // 20 misses + big Join
 	benchCase(b, "noDeclaredSomeRequired", func() { sinkErr = rx.Validate(bnValEmptyRe, bnValSome...) })

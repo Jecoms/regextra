@@ -117,26 +117,26 @@ func bnNames(prefix string, n int) []string {
 // pattern stresses NFA simulation, it does not blow up.
 
 var (
-	bnFindRe       = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
-	bnFindInput    = "Alice is 30"
-	bnFindEmailRe  = regexp.MustCompile(`(?P<word>\w+)@(?P<domain>\w+)`)
-	bnFindNoMatch  = "not-an-email-just-text"
-	bnFindZeroRe   = regexp.MustCompile(`(?P<prefix>\w*)@(?P<domain>\w+)`)
-	bnFindZeroIn   = "@example.com"
-	bnFindMedRe    = regexp.MustCompile(`(?P<tag>[a-z]+):\s*(?P<value>[^;]+)`)
-	bnFindMedIn    = strings.Repeat("x:y;", 50) + "target:extracted"
-	bnFindStartRe  = regexp.MustCompile(`^(?P<header>\w+):`)
-	bnFindStartIn  = "START:" + strings.Repeat("x", 5000)
-	bnFindEndRe    = regexp.MustCompile(`(?P<value>\w+)$`)
-	bnFindEndIn    = strings.Repeat("x", 5000) + " final"
-	bnFindManyRe   = regexp.MustCompile(`(?P<a>\w+) (?P<b>\w+) (?P<c>\w+) (?P<d>\w+) (?P<e>\w+) (?P<f>\w+) (?P<g>\w+) (?P<h>\w+) (?P<i>\w+) (?P<j>\w+)`)
-	bnFindManyIn   = "one two three four five six seven eight nine ten"
-	bnFindUTF8Re   = regexp.MustCompile(`(?P<name>\p{L}+) (\p{L}+) (?P<age>\d+)`)
-	bnFindUTF8In   = "María José 28" + strings.Repeat(" 日本語", 10)
-	bnFindAnchRe   = regexp.MustCompile(`^(?P<method>GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (?P<path>/[^\s]+)$`)
-	bnFindAnchIn   = "POST /api/users/123"
-	bnFindNestRe   = regexp.MustCompile(`(?P<value>a+)+b`)
-	bnFindNestIn   = strings.Repeat("a", 25) + "c"
+	bnFindRe      = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+	bnFindInput   = "Alice is 30"
+	bnFindEmailRe = regexp.MustCompile(`(?P<word>\w+)@(?P<domain>\w+)`)
+	bnFindNoMatch = "not-an-email-just-text"
+	bnFindZeroRe  = regexp.MustCompile(`(?P<prefix>\w*)@(?P<domain>\w+)`)
+	bnFindZeroIn  = "@example.com"
+	bnFindMedRe   = regexp.MustCompile(`(?P<tag>[a-z]+):\s*(?P<value>[^;]+)`)
+	bnFindMedIn   = strings.Repeat("x:y;", 50) + "target:extracted"
+	bnFindStartRe = regexp.MustCompile(`^(?P<header>\w+):`)
+	bnFindStartIn = "START:" + strings.Repeat("x", 5000)
+	bnFindEndRe   = regexp.MustCompile(`(?P<value>\w+)$`)
+	bnFindEndIn   = strings.Repeat("x", 5000) + " final"
+	bnFindManyRe  = regexp.MustCompile(`(?P<a>\w+) (?P<b>\w+) (?P<c>\w+) (?P<d>\w+) (?P<e>\w+) (?P<f>\w+) (?P<g>\w+) (?P<h>\w+) (?P<i>\w+) (?P<j>\w+)`)
+	bnFindManyIn  = "one two three four five six seven eight nine ten"
+	bnFindUTF8Re  = regexp.MustCompile(`(?P<name>\p{L}+) (\p{L}+) (?P<age>\d+)`)
+	bnFindUTF8In  = "María José 28" + strings.Repeat(" 日本語", 10)
+	bnFindAnchRe  = regexp.MustCompile(`^(?P<method>GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (?P<path>/[^\s]+)$`)
+	bnFindAnchIn  = "POST /api/users/123"
+	bnFindNestRe  = regexp.MustCompile(`(?P<value>a+)+b`)
+	bnFindNestIn  = strings.Repeat("a", 25) + "c"
 )
 
 func BenchmarkFindNamed(b *testing.B) {
@@ -207,8 +207,8 @@ var (
 )
 
 func BenchmarkNamedGroups(b *testing.B) {
-	benchCase(b, "twoGroups", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGIn) })        // representative
-	benchCase(b, "noMatch", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGNoMatch) })     // empty non-nil map, pre-loop return
+	benchCase(b, "twoGroups", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGIn) })          // representative
+	benchCase(b, "noMatch", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGNoMatch) })       // empty non-nil map, pre-loop return
 	benchCase(b, "manyGroups", func() { sinkMap = rx.NamedGroups(bnNGManyRe, bnNGManyIn) }) // map-insertion scaling (20 groups)
 }
 
