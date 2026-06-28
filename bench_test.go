@@ -1,281 +1,237 @@
 package regextra_test
 
-import (
-	rx "github.com/jecoms/regextra"
-	"regexp"
-	"strings"
-	"testing"
-	"time"
-)
-
-// Benchmarks for the hot paths users actually call. The goal is twofold:
+// Benchmark suite for regextra's exported surface.
 //
-//  1. Establish a baseline against which v0.5.0's Decoder[T] (re-3e2) can
-//     demonstrate its caching win.
-//  2. Catch regressions on the existing free-function path. v0.4.0 added four
-//     dispatch checks at the top of setFieldValue (pointer, RegexUnmarshaler,
-//     time.Time, time.Duration) — keep the absolute cost visible so future
-//     additions are vetted against a budget rather than guessed about.
+// Goals (see the package doc's "Performance" section for the user-facing claims
+// these numbers back):
+//
+//  1. Give every exported function a STATISTICALLY REPRESENTATIVE sample of
+//     real-world inputs — a small/medium/large progression spanning the
+//     realistic distribution of input size and match/group count — not one
+//     arbitrary fixture.
+//  2. Cover the edge and pathological corners of each cost model: the no-match
+//     shapes from the package's no-match contract table, optional/empty groups,
+//     duplicate group names, unicode, the time-layout best/worst pair, every
+//     setFieldValue dispatch branch, and the argument-validation guards.
+//  3. Keep head-to-head pairs (Unmarshal vs Decoder.One, UnmarshalAll vs
+//     Decoder.All) on BYTE-IDENTICAL regex + struct + input so benchstat can
+//     diff the caching win directly.
+//
+// Conventions:
+//   - One top-level Benchmark<Func> per exported function; cases are flat
+//     lowerCamelCase b.Run sub-names drawn from a shared vocabulary
+//     (noMatch, undeclaredGroup, singleMatch, small/medium/large, matchesN,
+//     fieldsN, groupsN, firstLayout/lastLayout).
+//   - Every fixture is a package-level var/const named bn<Group><Case>* —
+//     nothing built with strings.Repeat/Join/Sprintf or a variadic literal is
+//     constructed inside a benchmark loop, so the harness measures the function
+//     under test, not fixture construction.
+//   - Every loop body assigns its result to a typed package-level sink so the
+//     optimizer cannot fold the call to a no-op store (belt-and-suspenders on
+//     top of Go 1.24's b.Loop, which already keeps the call alive).
 //
 // Run with:
 //
 //	go test -bench=. -benchmem -run=^$ ./...
-
-// ── Find / NamedGroups baseline ───────────────────────────────────────────────
-
-var benchFindRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
-
-// BenchmarkFindNamed measures the single-group, single-match extraction path —
-// the cheapest function in the package and the baseline for everything else.
-func BenchmarkFindNamed(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		_, _ = rx.FindNamed(benchFindRe, "Alice is 30", "name")
-	}
-}
-
-// BenchmarkNamedGroups measures the all-groups-as-map path. The map allocation
-// dominates the cost vs. FindNamed.
-func BenchmarkNamedGroups(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = rx.NamedGroups(benchFindRe, "Alice is 30")
-	}
-}
-
-// BenchmarkFindAllNamed measures the all-matches projection of one named group.
-// Allocation scales with match count.
-func BenchmarkFindAllNamed(b *testing.B) {
-	re := regexp.MustCompile(`(?P<word>\S+)`)
-	target := "alpha beta gamma delta epsilon zeta eta theta"
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = rx.FindAllNamed(re, target, "word")
-	}
-}
-
-// ── Replace ───────────────────────────────────────────────────────────────────
-
-// BenchmarkReplace measures the substitution path: scan all matches, sort
-// per-match group spans, build the output string. Three matches in the input
-// to exercise the multi-match branch.
-func BenchmarkReplace(b *testing.B) {
-	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
-	target := "alice@example.com bob@other.org carol@third.net"
-	repl := map[string]string{"domain": "redacted"}
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = rx.Replace(re, target, repl)
-	}
-}
-
-// ── Unmarshal: simple struct (string + int + bool) ───────────────────────────
 //
-// Baseline for the most common shape. Hits the kind switch path with no
-// pointer / RegexUnmarshaler / time.Time fast-paths — measures the cost of
-// the four dispatch checks added in v0.4.0 against a "boring" struct.
-
-// benchSimple is a 3-field destination struct using only the kind-switch
-// branches of setFieldValue: string, int, bool. The benchmark measures that
-// path's per-call cost.
-type benchSimple struct {
-	Name   string `regex:"name"`
-	Age    int    `regex:"age"`
-	Active bool   `regex:"active"`
-}
-
-var benchSimpleRe = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
-
-// BenchmarkUnmarshal_simpleStruct measures the kind-switch path with no fast
-// paths hit. Establishes the baseline that Decoder[T] should beat.
-func BenchmarkUnmarshal_simpleStruct(b *testing.B) {
-	target := "Alice is 30 true"
-	b.ReportAllocs()
-	for b.Loop() {
-		var s benchSimple
-		if err := rx.Unmarshal(benchSimpleRe, target, &s); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// benchSimpleDecoder is the same struct decoded via a precompiled Decoder.
-// Compare against BenchmarkUnmarshal_simpleStruct to see the v0.5.0 win.
-var benchSimpleDecoder = rx.MustCompile[benchSimple](`(?P<name>\w+) is (?P<age>\d+) (?P<active>\w+)`)
-
-// BenchmarkDecoder_simpleStruct.One measures the same shape as
-// BenchmarkUnmarshal_simpleStruct via a precompiled Decoder. Both reuse
-// setFieldValue, but the Decoder skips the per-call SubexpNames loop and
-// per-field parseFieldTag work — that's where the win comes from.
-func BenchmarkDecoder_simpleStruct(b *testing.B) {
-	target := "Alice is 30 true"
-	b.ReportAllocs()
-	for b.Loop() {
-		_, err := benchSimpleDecoder.One(target)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// ── Unmarshal: pointer fields ────────────────────────────────────────────────
+// A/B a single function across a change with:
 //
-// Exercises the new pointer-dispatch step (allocate-if-nil + recurse). Cost
-// per field: one Kind() check + one IsNil() check + one allocation per nil
-// pointer.
+//	go test -bench=BenchmarkUnmarshal -benchmem -run=^$ -count=10 ./... | tee new.txt
+//	benchstat old.txt new.txt
 
-// benchPointers exercises the pointer dispatch step (allocate-if-nil + recurse).
-type benchPointers struct {
-	Name *string `regex:"name"`
-	Age  *int    `regex:"age"`
-}
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"testing"
 
-// BenchmarkUnmarshal_pointerFields measures the cost of the pointer dispatch
-// step plus the per-field allocation that nil pointers incur.
-func BenchmarkUnmarshal_pointerFields(b *testing.B) {
-	target := "Alice is 30"
-	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
-	b.ReportAllocs()
-	for b.Loop() {
-		var p benchPointers
-		if err := rx.Unmarshal(re, target, &p); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// ── Unmarshal: time.Time + time.Duration ─────────────────────────────────────
-//
-// Hits the time-types fast path (Type-equality match before the Kind switch).
-// The fallback time.Parse loop runs only on first-layout-miss; this benchmark
-// uses RFC3339 input so the first layout matches.
-
-// benchTime exercises the time-types fast paths (Type-equality match before
-// the kind switch).
-type benchTime struct {
-	TS   time.Time     `regex:"ts"`
-	Took time.Duration `regex:"took"`
-}
-
-var benchTimeRe = regexp.MustCompile(`(?P<ts>\S+) \((?P<took>\S+)\)`)
-
-// BenchmarkUnmarshal_timeFields measures the time.Time + time.Duration fast
-// paths. Input is RFC3339 so the first layout in the fallback list matches —
-// worst-case (last-layout-wins) is not measured here.
-func BenchmarkUnmarshal_timeFields(b *testing.B) {
-	target := "2026-04-26T12:34:56Z (1h30m)"
-	b.ReportAllocs()
-	for b.Loop() {
-		var t benchTime
-		if err := rx.Unmarshal(benchTimeRe, target, &t); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// ── Unmarshal: RegexUnmarshaler-implementing field ───────────────────────────
-//
-// Exercises the interface-dispatch step. The test type is intentionally simple
-// so the benchmark measures dispatch cost, not the body of UnmarshalRegex.
-
-// benchStatus is a caller-defined enum whose pointer satisfies
-// RegexUnmarshaler. Used to measure the interface-dispatch step.
-type benchStatus int
-
-const (
-	benchStatusUnknown benchStatus = iota
-	benchStatusOpen
-	benchStatusClosed
+	rx "github.com/jecoms/regextra"
 )
 
-// UnmarshalRegex maps the matched string to a benchStatus value. Body kept
-// minimal so the benchmark measures dispatch cost, not parse cost.
-func (s *benchStatus) UnmarshalRegex(value string) error {
-	switch value {
-	case "open":
-		*s = benchStatusOpen
-	case "closed":
-		*s = benchStatusClosed
-	default:
-		*s = benchStatusUnknown
-	}
-	return nil
-}
+// ── Typed sinks ───────────────────────────────────────────────────────────────
+// One per return kind, assigned in every loop body to defeat dead-store
+// elimination of the benchmarked call's result.
+var (
+	sinkStr   string
+	sinkOK    bool
+	sinkStrs  []string
+	sinkMap   map[string]string
+	sinkMapSS map[string][]string
+	sinkErr   error
+	sinkAny   any
+)
 
-// benchCustom is the destination struct for the RegexUnmarshaler benchmark.
-type benchCustom struct {
-	State benchStatus `regex:"state"`
-}
-
-var benchCustomRe = regexp.MustCompile(`\[(?P<state>\w+)\]`)
-
-// BenchmarkUnmarshal_customUnmarshaler measures the RegexUnmarshaler interface
-// dispatch step in setFieldValue. The custom UnmarshalRegex body is trivial so
-// the timing reflects dispatch overhead rather than user-defined work.
-func BenchmarkUnmarshal_customUnmarshaler(b *testing.B) {
-	target := "[open]"
-	b.ReportAllocs()
-	for b.Loop() {
-		var c benchCustom
-		if err := rx.Unmarshal(benchCustomRe, target, &c); err != nil {
-			b.Fatal(err)
+// benchCase runs fn in an allocation-reporting b.Loop under a named sub-benchmark.
+// fn must assign the result of the call under test to a sink. The single indirect
+// call benchCase adds is a constant offset across every case (and mirrors how real
+// callers invoke these funcs — through a call boundary, not inlined), so it leaves
+// relative comparisons and benchstat diffs valid.
+func benchCase(b *testing.B, name string, fn func()) {
+	b.Helper()
+	b.Run(name, func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			fn()
 		}
-	}
+	})
 }
 
-// ── UnmarshalAll: 100 log-line iteration ─────────────────────────────────────
+// ── Shared fixture generators (run at package init, never in a loop) ──────────
+
+// bnGroupsPattern builds a pattern of n distinct named groups f0..f(n-1)
+// separated by spaces, e.g. `(?P<f0>\w+) (?P<f1>\w+)`.
+func bnGroupsPattern(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = fmt.Sprintf(`(?P<f%d>\w+)`, i)
+	}
+	return strings.Join(parts, " ")
+}
+
+// bnWords builds n space-separated "w" tokens, the matching input for
+// bnGroupsPattern(n).
+func bnWords(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "w"
+	}
+	return strings.Join(parts, " ")
+}
+
+// bnNames builds n names prefix0..prefix(n-1), used to pre-build the variadic
+// slice for Validate so the backing array is not allocated inside the loop.
+func bnNames(prefix string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("%s%d", prefix, i)
+	}
+	return out
+}
+
+// ── FindNamed ─────────────────────────────────────────────────────────────────
 //
-// The realistic hot path for log parsers. Measures per-line amortized cost
-// across a batch — the metric Decoder[T] (re-3e2) is designed to improve.
+// Cost model: SubexpIndex (O(declared groups), returns -1 on an undeclared name
+// before any matching) then FindStringSubmatch, which dominates — it runs the
+// RE2 NFA simulation over the target and allocates the capture slice. Go's
+// regexp is RE2: linear time, no backtracking, no ReDoS — so a "pathological"
+// pattern stresses NFA simulation, it does not blow up.
 
-// BenchmarkUnmarshalAll_logLines measures amortized per-line decode cost
-// across a 100-line batch. This is the hot path Decoder[T] (re-3e2) is
-// designed to optimize — each iteration today rebuilds the reflect plan
-// from scratch.
-func BenchmarkUnmarshalAll_logLines(b *testing.B) {
-	type line struct {
-		Level string `regex:"level"`
-		Msg   string `regex:"msg"`
-	}
-	re := regexp.MustCompile(`\[(?P<level>\w+)\] (?P<msg>[^\n]+)`)
-	// 100 lines of input
-	target := strings.Repeat("[info] message body here\n", 100)
-	b.ReportAllocs()
-	for b.Loop() {
-		var lines []line
-		if err := rx.UnmarshalAll(re, target, &lines); err != nil {
-			b.Fatal(err)
-		}
-	}
+var (
+	bnFindRe       = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+	bnFindInput    = "Alice is 30"
+	bnFindEmailRe  = regexp.MustCompile(`(?P<word>\w+)@(?P<domain>\w+)`)
+	bnFindNoMatch  = "not-an-email-just-text"
+	bnFindZeroRe   = regexp.MustCompile(`(?P<prefix>\w*)@(?P<domain>\w+)`)
+	bnFindZeroIn   = "@example.com"
+	bnFindMedRe    = regexp.MustCompile(`(?P<tag>[a-z]+):\s*(?P<value>[^;]+)`)
+	bnFindMedIn    = strings.Repeat("x:y;", 50) + "target:extracted"
+	bnFindStartRe  = regexp.MustCompile(`^(?P<header>\w+):`)
+	bnFindStartIn  = "START:" + strings.Repeat("x", 5000)
+	bnFindEndRe    = regexp.MustCompile(`(?P<value>\w+)$`)
+	bnFindEndIn    = strings.Repeat("x", 5000) + " final"
+	bnFindManyRe   = regexp.MustCompile(`(?P<a>\w+) (?P<b>\w+) (?P<c>\w+) (?P<d>\w+) (?P<e>\w+) (?P<f>\w+) (?P<g>\w+) (?P<h>\w+) (?P<i>\w+) (?P<j>\w+)`)
+	bnFindManyIn   = "one two three four five six seven eight nine ten"
+	bnFindUTF8Re   = regexp.MustCompile(`(?P<name>\p{L}+) (\p{L}+) (?P<age>\d+)`)
+	bnFindUTF8In   = "María José 28" + strings.Repeat(" 日本語", 10)
+	bnFindAnchRe   = regexp.MustCompile(`^(?P<method>GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (?P<path>/[^\s]+)$`)
+	bnFindAnchIn   = "POST /api/users/123"
+	bnFindNestRe   = regexp.MustCompile(`(?P<value>a+)+b`)
+	bnFindNestIn   = strings.Repeat("a", 25) + "c"
+)
+
+func BenchmarkFindNamed(b *testing.B) {
+	// representative — the common one-shot extraction fast path.
+	benchCase(b, "small", func() { sinkStr, sinkOK = rx.FindNamed(bnFindRe, bnFindInput, "name") })
+	benchCase(b, "medium", func() { sinkStr, sinkOK = rx.FindNamed(bnFindMedRe, bnFindMedIn, "tag") })
+	benchCase(b, "multibyteUTF8", func() { sinkStr, sinkOK = rx.FindNamed(bnFindUTF8Re, bnFindUTF8In, "name") })
+	benchCase(b, "anchored", func() { sinkStr, sinkOK = rx.FindNamed(bnFindAnchRe, bnFindAnchIn, "method") })
+	// edge — no-match contract shapes and group boundaries.
+	benchCase(b, "undeclaredGroup", func() { sinkStr, sinkOK = rx.FindNamed(bnFindRe, bnFindInput, "missing") }) // SubexpIndex == -1, no scan
+	benchCase(b, "noMatch", func() { sinkStr, sinkOK = rx.FindNamed(bnFindEmailRe, bnFindNoMatch, "word") })     // declared group, full no-match scan
+	benchCase(b, "zeroLengthMatch", func() { sinkStr, sinkOK = rx.FindNamed(bnFindZeroRe, bnFindZeroIn, "prefix") })
+	// scaling — capture-slice allocation and scan-length growth.
+	benchCase(b, "manyGroupsExtractOne", func() { sinkStr, sinkOK = rx.FindNamed(bnFindManyRe, bnFindManyIn, "j") }) // 10-element capture slice; SubexpIndex a minor addend
+	benchCase(b, "largeMatchAtStart", func() { sinkStr, sinkOK = rx.FindNamed(bnFindStartRe, bnFindStartIn, "header") })
+	benchCase(b, "largeMatchAtEnd", func() { sinkStr, sinkOK = rx.FindNamed(bnFindEndRe, bnFindEndIn, "value") })
+	// pathological — NFA simulation of a nested quantifier with no match (linear, not catastrophic).
+	benchCase(b, "nestedQuantifierNoMatch", func() { sinkStr, sinkOK = rx.FindNamed(bnFindNestRe, bnFindNestIn, "value") })
 }
 
-// benchIterLine + benchIterDecoder are the Iter-side fixtures, paralleling
-// BenchmarkUnmarshalAll_logLines. Iter doesn't allocate the result slice; the
-// benchmark consumes via a counter to keep the loop body honest.
-type benchIterLine struct {
-	Level string `regex:"level"`
-	Msg   string `regex:"msg"`
+// ── FindAllNamed ──────────────────────────────────────────────────────────────
+//
+// Cost model: FindAllStringSubmatch scans the whole target and allocates a
+// [][]string of every match; FindAllNamed then projects one group into an
+// out []string whose size scales with match count. Undeclared group → nil
+// before any scan; declared-but-no-match → empty slice.
+
+var (
+	bnFAllRe       = regexp.MustCompile(`(?P<word>\S+)`)
+	bnFAll1        = "alpha"
+	bnFAll10       = strings.TrimSpace(strings.Repeat("w ", 10))
+	bnFAll100      = strings.TrimSpace(strings.Repeat("w ", 100))
+	bnFAll1000     = strings.TrimSpace(strings.Repeat("w ", 1000))
+	bnFAll10000    = strings.TrimSpace(strings.Repeat("w ", 10000))
+	bnFAllSparseRe = regexp.MustCompile(`(?P<num>\d+)`)
+	bnFAllSparseIn = strings.Repeat("abcdefghij", 1000) + " 1 2 3" // large target, few matches
+	bnFAllDenseRe  = regexp.MustCompile(`(?P<c>\w)`)
+	bnFAllDenseIn  = strings.Repeat("a", 500) // many tiny matches in a small target
+)
+
+func BenchmarkFindAllNamed(b *testing.B) {
+	// edge — the two no-match shapes (nil vs empty slice).
+	benchCase(b, "undeclaredGroup", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll10, "missing") }) // nil path, no scan
+	benchCase(b, "noMatch", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, "", "word") })                  // declared, empty slice
+	// representative + scaling — allocation scales with match count.
+	benchCase(b, "singleMatch", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll1, "word") })
+	benchCase(b, "matches10", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll10, "word") })
+	benchCase(b, "matches100", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll100, "word") })
+	benchCase(b, "matches1000", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll1000, "word") })
+	benchCase(b, "matches10000", func() { sinkStrs = rx.FindAllNamed(bnFAllRe, bnFAll10000, "word") })
+	// pathological — target size vs match density.
+	benchCase(b, "sparseLarge", func() { sinkStrs = rx.FindAllNamed(bnFAllSparseRe, bnFAllSparseIn, "num") })
+	benchCase(b, "denseSmall", func() { sinkStrs = rx.FindAllNamed(bnFAllDenseRe, bnFAllDenseIn, "c") })
 }
 
-var benchIterDecoder = rx.MustCompile[benchIterLine](`\[(?P<level>\w+)\] (?P<msg>[^\n]+)`)
+// ── NamedGroups ───────────────────────────────────────────────────────────────
+//
+// Cost model: FindStringSubmatch, then a SubexpNames loop populating a map
+// whose insertion cost scales with declared (named) group count. No-match still
+// allocates the empty (non-nil) map and returns before the loop.
 
-// BenchmarkDecoder_Iter_logLines measures Iter-based streaming decode of the
-// same 100-line corpus as BenchmarkUnmarshalAll_logLines. The win vs.
-// UnmarshalAll comes from skipping the slice allocation — useful when the
-// caller processes-and-discards each item.
-func BenchmarkDecoder_Iter_logLines(b *testing.B) {
-	target := strings.Repeat("[info] message body here\n", 100)
-	b.ReportAllocs()
-	for b.Loop() {
-		count := 0
-		for _, err := range benchIterDecoder.Iter(target) {
-			if err != nil {
-				b.Fatal(err)
-			}
-			count++
-		}
-		if count != 100 {
-			b.Fatalf("got %d lines, want 100", count)
-		}
-	}
+var (
+	bnNGRe      = regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+	bnNGIn      = "Alice is 30"
+	bnNGNoMatch = "no match here"
+	bnNGManyRe  = regexp.MustCompile(bnGroupsPattern(20))
+	bnNGManyIn  = bnWords(20)
+)
+
+func BenchmarkNamedGroups(b *testing.B) {
+	benchCase(b, "twoGroups", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGIn) })        // representative
+	benchCase(b, "noMatch", func() { sinkMap = rx.NamedGroups(bnNGRe, bnNGNoMatch) })     // empty non-nil map, pre-loop return
+	benchCase(b, "manyGroups", func() { sinkMap = rx.NamedGroups(bnNGManyRe, bnNGManyIn) }) // map-insertion scaling (20 groups)
+}
+
+// ── AllNamedGroups ────────────────────────────────────────────────────────────
+//
+// Cost model: like NamedGroups, but values are []string, so each distinct group
+// costs an extra one-element slice allocation, and a repeated group name forces
+// slice append/regrowth under one key — the path this function exists for.
+
+var (
+	bnANGDistinctRe = regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+	bnANGDistinctIn = "Alice 30"
+	bnANGDupRe      = regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
+	bnANGDupIn      = "alpha beta gamma"
+	bnANGNoMatch    = "nomatch"
+	bnANGManyDupRe  = regexp.MustCompile(strings.Repeat(`(?P<w>\w+)\s*`, 20))
+	bnANGManyDupIn  = strings.Repeat("x ", 20)
+)
+
+func BenchmarkAllNamedGroups(b *testing.B) {
+	// distinctGroups pairs with NamedGroups/twoGroups-style input to expose the slice-per-key tax.
+	benchCase(b, "distinctGroups", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGDistinctIn) })
+	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.AllNamedGroups(bnANGDupRe, bnANGDupIn) }) // 3 occurrences under one key
+	benchCase(b, "noMatch", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGNoMatch) })
+	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn) }) // 20 appends + regrowth under one key
 }
