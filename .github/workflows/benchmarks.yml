@@ -1,0 +1,68 @@
+name: Benchmarks
+
+# Runs the benchmark suite (bench_*.go) on the newest supported toolchain. The
+# point is twofold: (1) keep the benchmarks compiling and runnable — a broken
+# or panicking benchmark fails this job; (2) surface the numbers in the job
+# summary so a PR's effect on the hot paths is visible at review time.
+#
+# This job does NOT gate on performance thresholds. GitHub-hosted runners are
+# shared and noisy, so absolute ns/op swings are not reliable enough to fail a
+# build on. For a real before/after, run the suite locally and diff with
+# benchstat (see the header of bench_test.go).
+#
+# Note: testing ACROSS toolchains lives in test.yml's matrix (1.24/1.25/1.26);
+# this workflow is specifically the performance leg on the latest toolchain.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Benchmarks (Go 1.26)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+
+    - name: Set up Go
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+      with:
+        go-version: '1.26'
+
+    - name: Get dependencies
+      run: go mod download
+
+    - name: Run benchmarks
+      run: |
+        set -euo pipefail
+        # Modest -benchtime/-count: enough to exercise every case and catch a
+        # broken benchmark, while keeping the job fast. These numbers are a
+        # smoke signal and a record, not a gating threshold (see header).
+        go test -run='^$' -bench=. -benchmem -benchtime=50ms -count=3 ./... | tee bench.txt
+
+    - name: Publish results to job summary
+      if: always()
+      run: |
+        {
+          echo "## Benchmark results (Go 1.26)"
+          echo ""
+          echo "Smoke run on a shared runner — informational, not a perf gate."
+          echo "For before/after, diff locally with benchstat."
+          echo ""
+          echo '```'
+          if [ -f bench.txt ]; then
+            grep -E '^(goos|goarch|pkg|cpu|Benchmark)' bench.txt || cat bench.txt
+          else
+            echo "(benchmark run produced no output)"
+          fi
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
