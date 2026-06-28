@@ -163,6 +163,16 @@ func TestFindAllNamed(t *testing.T) {
 			group:   "word",
 			want:    []string{},
 		},
+		{
+			// The requested group is optional and does not participate in every
+			// match; non-participating occurrences yield "" (matching what
+			// FindStringSubmatch reports for an unmatched group).
+			name:    "optional group, non-participating matches yield empty string",
+			pattern: `(?P<a>\w+)(?P<b>!)?`,
+			target:  "x! y z!",
+			group:   "b",
+			want:    []string{"!", "", "!"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -338,6 +348,24 @@ func TestReplace(t *testing.T) {
 			target:  "a 1 b 2 c 3 d",
 			repl:    map[string]string{"num": "*"},
 			want:    "a * b * c * d",
+		},
+		{
+			// Issue #107: nested named groups share a start offset, so the span
+			// sort must be deterministic. The outermost span (same start, larger
+			// end) wins; the inner group inside the already-replaced span is not
+			// substituted. The previous unstable sort.Slice made this flaky.
+			name:    "nested groups, outermost wins",
+			pattern: `(?P<outer>(?P<inner>\w+)@[\w.]+)`,
+			target:  "alice@example.com",
+			repl:    map[string]string{"outer": "REDACTED", "inner": "X"},
+			want:    "REDACTED",
+		},
+		{
+			name:    "nested groups, only inner group in map is substituted",
+			pattern: `(?P<outer>(?P<inner>\w+)@[\w.]+)`,
+			target:  "alice@example.com",
+			repl:    map[string]string{"inner": "X"},
+			want:    "X@example.com",
 		},
 	}
 	for _, tt := range tests {
