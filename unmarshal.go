@@ -190,7 +190,11 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 		}
 
 		// Determine the capture group name and any per-field options for this field
-		groupName, opts := parseFieldTag(fieldType)
+		groupName, opts, skip := parseFieldTag(fieldType)
+		if skip {
+			// `regex:"-"` excludes the field entirely — no name fallback.
+			continue
+		}
 
 		// Try to find the value for this field
 		value, found := findGroupValue(groupName, fieldType.Name, groupValues)
@@ -228,17 +232,27 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 //     reserved for future flag-style options (e.g. `required`), so callers
 //     must not rely on lone tokens remaining inert.
 //
-// `regex:""` and `regex:"-"` both signal "no name", returning "" and a nil
-// options map.
-func parseFieldTag(field reflect.StructField) (name string, opts map[string]string) {
+// The two forms differ:
+//   - `regex:""` (no tag) signals "no name", returning ("", nil, false); the
+//     caller falls back to matching the field's own name against a group.
+//   - `regex:"-"` signals "exclude this field", returning ("", nil, true); the
+//     caller excludes the field entirely, never attempting a name fallback. This
+//     mirrors the `-` convention in encoding/json, encoding/xml, and
+//     gopkg.in/yaml. Only the bare `-` tag excludes; a leading `-` followed by
+//     options (e.g. `regex:"-,default=x"`) parses `-` as the group name, which
+//     matches no group since group names are Go identifiers.
+func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, skip bool) {
 	tag := field.Tag.Get("regex")
-	if tag == "" || tag == "-" {
-		return "", nil
+	if tag == "-" {
+		return "", nil, true
+	}
+	if tag == "" {
+		return "", nil, false
 	}
 	parts := strings.Split(tag, ",")
 	name = strings.TrimSpace(parts[0])
 	if len(parts) == 1 {
-		return name, nil
+		return name, nil, false
 	}
 	opts = make(map[string]string, len(parts)-1)
 	for _, p := range parts[1:] {
@@ -255,7 +269,7 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
-	return name, opts
+	return name, opts, false
 }
 
 // resolveGroupValue decides what a field receives given its group's raw match

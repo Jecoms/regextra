@@ -108,7 +108,12 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 			continue
 		}
 
-		groupName, opts := parseFieldTag(sf)
+		groupName, opts, skip := parseFieldTag(sf)
+		if skip {
+			// `regex:"-"` excludes the field entirely — it never enters the
+			// decode plan and no name fallback is attempted.
+			continue
+		}
 		if groupName == "" {
 			// No explicit tag — fall back to matching the field name against a
 			// declared group: exact first, then case-insensitively via Unicode
