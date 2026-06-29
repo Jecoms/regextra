@@ -315,6 +315,10 @@ type RegexUnmarshaler interface {
 	UnmarshalRegex(value string) error
 }
 
+// regexUnmarshalerType is the reflect.Type of RegexUnmarshaler, cached so
+// the implements-check on every field doesn't pay the reflect.TypeOf cost.
+var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
+
 // setFieldValue sets the field value with appropriate type conversion.
 // `opts` carries per-field tag options parsed from `regex:"name,key=value,..."`.
 // Currently consulted: `layout` (for time.Time fields). Pass nil for no opts.
@@ -340,13 +344,23 @@ func setFieldValue(field reflect.Value, value string, opts map[string]string) er
 	//    below. A type `type MyTime time.Time` with its own UnmarshalRegex
 	//    must NOT be pre-empted by the time.Time fast path.
 	//
-	//    Every value reaching this function is addressable (struct fields via
-	//    a pointer's Elem, reflect.New(...).Elem(), or a recursive Elem of a
+	//    Values reaching this function are addressable (struct fields via a
+	//    pointer's Elem, reflect.New(...).Elem(), or a recursive Elem of a
 	//    pointer field), and *T's method set includes T's value-receiver
-	//    methods, so this single check dispatches both pointer-receiver and
-	//    value-receiver implementations.
+	//    methods, so for concrete field types this check dispatches both
+	//    pointer-receiver and value-receiver implementations.
 	if field.CanAddr() {
 		if u, ok := field.Addr().Interface().(RegexUnmarshaler); ok {
+			return u.UnmarshalRegex(value)
+		}
+	}
+	// The CanAddr check above does NOT cover interface-typed fields: an
+	// interface field's Addr() is a *interface, which does not satisfy
+	// RegexUnmarshaler even when the stored concrete value does. Dispatch
+	// those on the field's own type/value (e.g. `F RegexUnmarshaler`
+	// pre-populated with a concrete implementation).
+	if field.Type().Implements(regexUnmarshalerType) {
+		if u, ok := field.Interface().(RegexUnmarshaler); ok {
 			return u.UnmarshalRegex(value)
 		}
 	}

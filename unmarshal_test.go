@@ -108,6 +108,26 @@ func TestUnmarshalRegexUnmarshaler(t *testing.T) {
 			t.Fatalf("Unmarshal returned %v", err)
 		}
 	})
+
+	t.Run("interface-typed field with concrete value is dispatched", func(t *testing.T) {
+		// Regression guard for #125: an interface-typed struct field whose
+		// stored concrete value implements RegexUnmarshaler must dispatch.
+		// field.Addr() on an interface field is a *interface, which does NOT
+		// satisfy RegexUnmarshaler, so the CanAddr branch alone cannot handle
+		// this — the field.Type().Implements(...) branch is required.
+		type Holder struct {
+			F rx.RegexUnmarshaler `regex:"f"`
+		}
+		re := regexp.MustCompile(`(?P<f>\w+)`)
+		s := new(status)
+		h := Holder{F: s}
+		if err := rx.Unmarshal(re, "open", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if *s != statusOpen {
+			t.Errorf("UnmarshalRegex did not run: *s = %d, want %d (statusOpen)", *s, statusOpen)
+		}
+	})
 }
 
 func TestUnmarshalTimeTypes(t *testing.T) {
