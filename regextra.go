@@ -172,9 +172,10 @@ each function.
 package regextra
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -192,12 +193,21 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 		return "", false
 	}
 
-	matches := re.FindStringSubmatch(target)
-	if matches == nil {
+	// FindStringSubmatchIndex returns only the match offsets ([]int), so we can
+	// slice the one group we want out of target directly. FindStringSubmatch
+	// would additionally allocate a []string for every group just to discard
+	// all but one.
+	loc := re.FindStringSubmatchIndex(target)
+	if loc == nil {
 		return "", false
 	}
-
-	return matches[index], true
+	start, end := loc[2*index], loc[2*index+1]
+	if start < 0 {
+		// Group is declared but did not participate in the match; regexp's
+		// FindStringSubmatch would surface this as "" — preserve that.
+		return "", true
+	}
+	return target[start:end], true
 }
 
 // FindAllNamed returns every value of the named capture group across all
@@ -221,13 +231,20 @@ func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
 	if index == -1 {
 		return nil
 	}
-	matches := re.FindAllStringSubmatch(target, -1)
-	if len(matches) == 0 {
+	// Index form returns []int offsets per match; we slice the single group out
+	// of target rather than have FindAllStringSubmatch build a [][]string of
+	// every group across every match only to read one column of it.
+	locs := re.FindAllStringSubmatchIndex(target, -1)
+	if len(locs) == 0 {
 		return []string{}
 	}
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		out = append(out, m[index])
+	out := make([]string, len(locs))
+	for i, loc := range locs {
+		if s := loc[2*index]; s >= 0 {
+			out[i] = target[s:loc[2*index+1]]
+		}
+		// s < 0 → group did not participate in this match; leave out[i] == ""
+		// to match FindStringSubmatch's "" for a non-participating group.
 	}
 	return out
 }
@@ -341,9 +358,10 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 	}
 
 	var b strings.Builder
+	spans := make([]span, 0, len(names)) // reused across matches
 	cursor := 0
 	for _, m := range matches {
-		spans := make([]span, 0, len(names))
+		spans = spans[:0]
 		for i := 1; i < len(names); i++ {
 			name := names[i]
 			if name == "" {
@@ -359,7 +377,19 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 			}
 			spans = append(spans, span{start: s, end: e, repl: repl})
 		}
-		sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+		// Sort by start ascending, then end descending: when named groups share
+		// a start offset (nested groups), the outermost span — the one with the
+		// larger end — sorts first, claims the cursor, and the inner spans it
+		// encloses are skipped, making the documented "outermost wins" tie-break
+		// deterministic. The stable sort preserves declaration order for spans
+		// that are otherwise equal. (Fixes #107: the previous sort.Slice was
+		// unstable, so the tie-break was not guaranteed.)
+		slices.SortStableFunc(spans, func(a, c span) int {
+			if a.start != c.start {
+				return cmp.Compare(a.start, c.start)
+			}
+			return cmp.Compare(c.end, a.end)
+		})
 		for _, sp := range spans {
 			if sp.start < cursor {
 				continue // already covered (overlap with an earlier substitution)

@@ -12,6 +12,10 @@ permissions:
 jobs:
   test:
     name: Test (Go ${{ matrix.go-version }})
+    # Don't run on fork PRs (no token/secret exposure); same-repo + push still run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -24,6 +28,10 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      with:
+        # Read-only checkout: don't leave the token in local git config where
+        # PR-controlled code (go test/vet/lint) could reach it.
+        persist-credentials: false
 
     - name: Set up Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -69,18 +77,25 @@ jobs:
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
       with:
-        file: ./coverage.txt
+        files: ./coverage.txt
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
 
   lint:
     name: Lint
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     
     steps:
     - name: Check out code
       uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      with:
+        # Read-only checkout: don't leave the token in local git config where
+        # PR-controlled code (go test/vet/lint) could reach it.
+        persist-credentials: false
 
     - name: Set up Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -96,11 +111,18 @@ jobs:
 
   vet:
     name: Vet
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     
     steps:
     - name: Check out code
       uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      with:
+        # Read-only checkout: don't leave the token in local git config where
+        # PR-controlled code (go test/vet/lint) could reach it.
+        persist-credentials: false
 
     - name: Set up Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
