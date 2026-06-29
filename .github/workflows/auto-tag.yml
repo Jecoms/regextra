@@ -86,16 +86,25 @@ jobs:
 
       - name: Delete release branch (best effort)
         # GitHub auto-deletes merged branches if the repo has that setting
-        # enabled, so this is a no-op in that case. Don't fail the workflow
-        # when the branch is already gone.
+        # enabled, so this is usually a no-op. Strictly best-effort: never fail
+        # the release over branch cleanup — the tag and GitHub Release are
+        # already published by this point.
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            git push origin --delete "$BRANCH"
+          BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName) || {
+            echo "::warning::Could not resolve the release branch for PR #$PR_NUMBER; skipping cleanup"
+            exit 0
+          }
+          if [ -z "$BRANCH" ]; then
+            echo "::warning::Release branch name was empty; skipping cleanup"
+            exit 0
+          fi
+          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "ℹ️  Release branch $BRANCH already removed (likely auto-deleted on merge)"
+          elif git push origin --delete "$BRANCH"; then
             echo "✅ Deleted release branch: $BRANCH"
           else
-            echo "ℹ️  Release branch $BRANCH already removed (likely auto-deleted on merge)"
+            echo "::warning::Failed to delete release branch $BRANCH (tag and release are already published)"
           fi
