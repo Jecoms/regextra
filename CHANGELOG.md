@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Duplicate group names no longer lose the participating value.** Go's `regexp` allows the same `(?P<name>...)` to appear more than once in a pattern (e.g. across alternation branches), where only one occurrence participates in a given match. Every name-based reader now resolves the occurrence that actually participated instead of trusting `re.SubexpIndex`'s first occurrence or letting a later empty/non-participating occurrence clobber a real value. Affects `NamedGroups`, `Unmarshal`, `UnmarshalAll`, `Decoder.One`/`Decoder.All`/`Decoder.Iter`, `FindNamed`, and `FindAllNamed`. For example, with `(?:x(?P<word>a)|y(?P<word>b))`, `FindNamed(re, "yb", "word")` now returns `("b", true)` (was `("", true)`) and `FindAllNamed(re, "xa yb", "word")` returns `["a", "b"]` (was `["a", ""]`). ([#127](https://github.com/Jecoms/regextra/pull/127), fixes [#105](https://github.com/Jecoms/regextra/issues/105))
+- **`Unmarshal`/`UnmarshalAll` no longer error on a non-participating optional group with a typed field.** A declared optional group that does not participate in the match (e.g. `(?P<num>\d+)?` against input with no digits) is now left at the field's zero value, matching `Decoder.One`, instead of feeding `""` into the numeric/bool/time conversion and returning `cannot convert "" to …`. Fields with a `default=` still substitute the default as before, and `NamedGroups` still reports a non-participating group as `""`. ([#127](https://github.com/Jecoms/regextra/pull/127))
+
+### Performance
+
+- Switching the `Decoder` to the index-returning match functions (`FindStringSubmatchIndex` / `FindAllStringSubmatchIndex`) — required to tell a participating-empty group from a non-participating one — also drops a per-match allocation: `Decoder.One` on a simple struct goes from 3 allocs to 2 (−40% B/op) and `Decoder.Iter` over 100 log lines from 309 allocs to 209 (−32%). ([#127](https://github.com/Jecoms/regextra/pull/127))
+
 ## [1.0.0] - 2026-05-05
 
 The API-stability stamp. Every public surface in `regextra.go`, `unmarshal.go`, and `decoder.go` was audited by the v1-readiness review (`docs/v1-readiness.md`) and carries a documented `Keep` verdict. The three "change before v1" blockers from that review (`AllNamedGroups` naming, tag-grammar reservation policy, no-match contract) all resolved as documentation lock-ins — every behavior in the v0.5.0 release ships unchanged into v1.0.0.
