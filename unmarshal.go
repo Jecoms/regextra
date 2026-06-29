@@ -279,8 +279,14 @@ func findGroupValue(tagName, fieldName string, groupValues map[string]string) (s
 	}
 
 	// Try case-insensitive match. EqualFold avoids the per-comparison
-	// allocations of ToLower and is the same fold the Decoder's compile-time
-	// fallback uses, so the two paths can't disagree on what matches.
+	// allocations of ToLower and applies the same Unicode simple-fold the
+	// Decoder's compile-time fallback (matchGroupName) uses. The two paths
+	// share the fold predicate but not the iteration order: this ranges a Go
+	// map (random order) while matchGroupName walks SubexpNames (declaration
+	// order), so if several group names fold-equal one field they can resolve
+	// to different groups, and Unmarshal's choice among them is not stable
+	// across calls. Such fold-collisions are unusual; picking a deterministic
+	// winner is out of scope here.
 	for groupName, value := range groupValues {
 		if strings.EqualFold(groupName, fieldName) {
 			return value, true

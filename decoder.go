@@ -110,10 +110,11 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 
 		groupName, opts := parseFieldTag(sf)
 		if groupName == "" {
-			// No explicit tag — try field name match (exact or
-			// case-insensitive). For the decoder we only consider exact
-			// matches against declared groups; loose matching at compile
-			// time would mask typos.
+			// No explicit tag — fall back to matching the field name against a
+			// declared group: exact first, then case-insensitively via Unicode
+			// simple-fold (the same predicate Unmarshal's runtime fallback
+			// uses; see matchGroupName). A field that matches no group and has
+			// no default is treated as a typo and fails at compile time below.
 			groupName = matchGroupName(re, sf.Name)
 		}
 
