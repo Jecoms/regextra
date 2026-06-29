@@ -304,16 +304,13 @@ func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) erro
 			value = target[start:matches[2*gi+1]]
 			found = true
 		}
-		// default= substitutes when no occurrence participated OR the winning
-		// value is empty — the same rule populateStruct applies on the
-		// Unmarshal path.
-		if !found || value == "" {
-			if def, ok := fd.opts["default"]; ok {
-				value = def
-				found = true
-			}
-		}
-		if !found {
+		// The skip-or-default contract is shared with the Unmarshal path via
+		// resolveGroupValue (see its doc): default= substitutes when no
+		// occurrence participated OR the winning value is empty, otherwise an
+		// empty/absent group skips the field rather than feeding "" to the
+		// type converter.
+		value, ok := resolveGroupValue(value, found, fd.opts)
+		if !ok {
 			continue
 		}
 		field := rv.Field(fd.fieldIndex)
