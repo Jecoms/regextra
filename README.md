@@ -218,6 +218,8 @@ type LogLine struct {
 }
 ```
 
+**Excluding a field:** `regex:"-"` excludes a field entirely — it is never populated, even if a declared group happens to share the field's name. This matches the `-` convention in `encoding/json`, `encoding/xml`, and `gopkg.in/yaml`. It differs from an absent tag (`regex:""`), which falls back to matching the field's own name against a group. Only the bare `-` excludes; a leading `-` followed by options (e.g. `regex:"-,default=x"`) parses `-` as the group name, which matches no group.
+
 **Forward-compat rules (v1 contract):**
 
 - **Unknown `key=value` pairs are preserved, not rejected.** Adding a new option key in a future minor release is not a breaking change. Don't rely on the parser rejecting unknown keys — pin a minor version range if you need a specific recognized set.

@@ -131,8 +131,16 @@ option. Currently recognized keys:
 	layout=<go-time-layout>   time.Time only. Used exclusively, instead of
 	                          the default RFC3339-and-friends fallback list.
 
-`regex:""` and `regex:"-"` both signal "no name" — fall back to the field's
-own name for matching.
+The two "empty" forms differ, matching the convention in encoding/json,
+encoding/xml, and gopkg.in/yaml:
+
+	regex:""    No tag. Fall back to the field's own name for matching.
+	regex:"-"   Exclude the field entirely. It is never populated, even if a
+	            declared group happens to share its name.
+
+Only the bare `-` tag excludes. A leading `-` followed by options
+(e.g. `regex:"-,default=x"`) parses `-` as the group name, which matches no
+group since regexp group names are Go identifiers.
 
 Two forward-compatibility rules in [parseFieldTag] are part of the v1 contract:
 
