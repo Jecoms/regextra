@@ -114,4 +114,24 @@ func TestUnmarshal_decoderParityOnOptionalGroups(t *testing.T) {
 			t.Errorf("input %q: Unmarshal=%+v Decoder.One=%+v — paths disagree", input, fromUnmarshal, fromDecoder)
 		}
 	}
+
+	// Parity must also hold for the participating empty-span case — the novel
+	// behavior this PR fixes (#104), which the optional-group pattern above
+	// can't produce (its `age` group either participates with digits or not at
+	// all). On the empty-span input both paths must skip the field identically
+	// rather than one erroring on `""`.
+	const emptySpanPattern = `(?P<name>\w+):(?P<age>\d*)`
+	emptyRe := regexp.MustCompile(emptySpanPattern)
+	emptyDec := MustCompile[person](emptySpanPattern)
+	var fromUnmarshal person
+	if err := Unmarshal(emptyRe, "Alice:", &fromUnmarshal); err != nil {
+		t.Fatalf("Unmarshal(empty-span): %v", err)
+	}
+	fromDecoder, err := emptyDec.One("Alice:")
+	if err != nil {
+		t.Fatalf("Decoder.One(empty-span): %v", err)
+	}
+	if fromUnmarshal != fromDecoder {
+		t.Errorf("empty-span: Unmarshal=%+v Decoder.One=%+v — paths disagree", fromUnmarshal, fromDecoder)
+	}
 }
