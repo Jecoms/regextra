@@ -236,9 +236,9 @@ func populateStruct(structValue reflect.Value, groupValues map[string]string) er
 //   - `regex:""` (no tag) signals "no name", returning ("", nil, false); the
 //     caller falls back to matching the field's own name against a group.
 //   - `regex:"-"` signals "exclude this field", returning ("", nil, true); the
-//     caller skips the field entirely, never attempting a name fallback. This
+//     caller excludes the field entirely, never attempting a name fallback. This
 //     mirrors the `-` convention in encoding/json, encoding/xml, and
-//     gopkg.in/yaml. Only the bare `-` tag skips; a leading `-` followed by
+//     gopkg.in/yaml. Only the bare `-` tag excludes; a leading `-` followed by
 //     options (e.g. `regex:"-,default=x"`) parses `-` as the group name, which
 //     matches no group since group names are Go identifiers.
 func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, skip bool) {

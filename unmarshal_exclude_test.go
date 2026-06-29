@@ -69,6 +69,26 @@ func TestUnmarshal_emptyTagStillFallsBackToFieldName(t *testing.T) {
 	}
 }
 
+// Only the bare `-` excludes: a leading `-` followed by options parses `-` as
+// the group name, which matches no group, so the field falls through to its
+// `default`. The documented boundary in three doc locations (parseFieldTag
+// godoc, README, CHANGELOG), guarded here so it can't silently regress.
+func TestUnmarshal_dashWithOptionsIsNotExcluded(t *testing.T) {
+	type Person struct {
+		Name string `regex:"name"`
+		Age  string `regex:"-,default=unknown"` // "-" is a group name, not an exclude
+	}
+	re := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+
+	var p Person
+	if err := rx.Unmarshal(re, "Alice is 30", &p); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if p.Age != "unknown" {
+		t.Errorf("Age = %q, want %q (regex:\"-,default=x\" is not excluded; \"-\" matches no group, so default applies)", p.Age, "unknown")
+	}
+}
+
 func TestDecoder_dashExcludesField(t *testing.T) {
 	type Person struct {
 		Name string `regex:"name"`
@@ -104,6 +124,22 @@ func TestDecoder_dashExcludesField(t *testing.T) {
 			if p.Age != "" {
 				t.Errorf("ps[%d].Age = %q, want it left at zero value", i, p.Age)
 			}
+		}
+	})
+
+	t.Run("Iter", func(t *testing.T) {
+		var n int
+		for p, err := range d.Iter("Alice is 30 Bob is 25") {
+			if err != nil {
+				t.Fatalf("Iter() error = %v", err)
+			}
+			if p.Age != "" {
+				t.Errorf("people[%d].Age = %q, want it left at zero value", n, p.Age)
+			}
+			n++
+		}
+		if n != 2 {
+			t.Fatalf("got %d people, want 2", n)
 		}
 	})
 }
