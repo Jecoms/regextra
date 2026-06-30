@@ -134,6 +134,8 @@ regextra/
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)
 ├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
 ├── README.md              # Public API documentation
+├── AGENTS.md              # AI-agent entry point (pointer to this guide)
+├── CLAUDE.md              # Claude Code entry point (points to AGENTS.md/this guide)
 ├── CONTRIBUTING.md         # This file
 ├── CHANGELOG.md           # Version history
 ├── go.mod                 # Module definition
