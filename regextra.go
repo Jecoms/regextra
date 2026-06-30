@@ -142,7 +142,7 @@ Only the bare `-` tag excludes. A leading `-` followed by options
 (e.g. `regex:"-,default=x"`) parses `-` as the group name, which matches no
 group since regexp group names are Go identifiers.
 
-Two forward-compatibility rules in [parseFieldTag] are part of the v1 contract:
+Two forward-compatibility rules in the tag parser are part of the v1 contract:
 
   - Unknown key=value pairs are preserved, not rejected. The parser stores
     every key=value pair regardless of whether the key is currently
@@ -153,7 +153,8 @@ Two forward-compatibility rules in [parseFieldTag] are part of the v1 contract:
     recognized set.
 
   - Lone tokens (no `=`) are silently ignored. Today, `regex:"name,foo"`
-    parses as (name="name", opts=nil) — the `foo` token is dropped. This
+    is a no-op — the `foo` token is dropped, so the field resolves exactly as
+    `regex:"name"` would. This
     slot is reserved for future flag-style options (e.g. `required`; see
     ROADMAP.md). A later minor release may start recognizing specific lone
     tokens and giving them meaning, so adding `regex:"name,foo"` today is a

@@ -53,6 +53,28 @@ gofmt -s -l .
 - Test edge cases (nil pointers, empty strings, no matches)
 - Add example tests for public APIs (they appear in godoc)
 
+#### Test the public contract, not internals
+- **Assert observable behavior through the exported API** (`Unmarshal`,
+  `UnmarshalAll`, `Compile`/`Decoder`, etc.), never the internals of an
+  unexported function. If a behavior matters, it is reachable from the public
+  surface — drive it from there so tests survive refactors of the internals.
+  Behavior that looks invisible usually isn't: a forward-compat rule like "an
+  unknown tag option is ignored" is observable as a no-op — pair it with a
+  visible effect such as `default=` to prove the parser accepted it.
+- **Do not pin implementation detail** — private field shapes, whether a map
+  is nil vs empty, or intermediate parser state. Pinning internals makes tests
+  brittle and turns harmless refactors into false regressions.
+- The rule is about what you *assert*, not the package clause. A test in
+  `package regextra` (rather than `package regextra_test`) is fine when it
+  still asserts observable behavior — several existing files do this only to
+  drop the `rx.` qualifier. It is not a license to read unexported state.
+- If a unit ever genuinely needs isolation the public API can't reach,
+  introduce a seam — an interface or injected dependency, with a fake/stub in
+  the test — instead of reaching inside. (regextra is a pure library today, so
+  this is rare.) Benchmarks that must measure unexported cost, like
+  `bench_internal_test.go`, are the one accepted reason to live inside the
+  package and touch internals.
+
 ### Documentation
 - **All exported functions must have godoc comments**
 - Start with the function name: `// FunctionName does...`
