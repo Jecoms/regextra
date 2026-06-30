@@ -52,13 +52,14 @@ import (
 // One per return kind, assigned in every loop body to defeat dead-store
 // elimination of the benchmarked call's result.
 var (
-	sinkStr   string
-	sinkOK    bool
-	sinkStrs  []string
-	sinkMap   map[string]string
-	sinkMapSS map[string][]string
-	sinkErr   error
-	sinkAny   any
+	sinkStr      string
+	sinkOK       bool
+	sinkStrs     []string
+	sinkMap      map[string]string
+	sinkMapSS    map[string][]string
+	sinkSliceMap []map[string]string
+	sinkErr      error
+	sinkAny      any
 )
 
 // benchCase runs fn in an allocation-reporting b.Loop under a named sub-benchmark.
@@ -234,6 +235,37 @@ func BenchmarkAllNamedGroups(b *testing.B) {
 	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.AllNamedGroups(bnANGDupRe, bnANGDupIn) }) // 3 occurrences under one key
 	benchCase(b, "noMatch", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGNoMatch) })
 	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn) }) // 20 appends + regrowth under one key
+}
+
+// ── NamedGroupsPerMatch ───────────────────────────────────────────────────────
+//
+// Cost model: like NamedGroups but over every match — FindAllStringSubmatchIndex
+// scans the whole target and allocates the index matrix, then one map is built
+// per match (map alloc + per-group insertion). The Seq form skips the outer
+// []map[string]string allocation but builds the same per-match maps. Cost
+// dimensions: match count and groups-per-match.
+
+var (
+	bnNGPMRe        = regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+	bnNGPMIn        = strings.TrimSpace(strings.Repeat("a=1 b=2 ", 50)) // 100 matches
+	bnNGPMSingleIn  = "a=1"
+	bnNGPMNoMatchIn = "no key value pairs here"
+)
+
+func BenchmarkNamedGroupsPerMatch(b *testing.B) {
+	benchCase(b, "matches100", func() { sinkSliceMap = rx.NamedGroupsPerMatch(bnNGPMRe, bnNGPMIn) })     // representative batch
+	benchCase(b, "single", func() { sinkSliceMap = rx.NamedGroupsPerMatch(bnNGPMRe, bnNGPMSingleIn) })   // one match
+	benchCase(b, "noMatch", func() { sinkSliceMap = rx.NamedGroupsPerMatch(bnNGPMRe, bnNGPMNoMatchIn) }) // empty non-nil slice, early return
+}
+
+func BenchmarkNamedGroupsPerMatchSeq(b *testing.B) {
+	// Drains the iterator into the same per-match map sink; isolates the
+	// slice-allocation saving versus the eager NamedGroupsPerMatch above.
+	benchCase(b, "matches100", func() {
+		for m := range rx.NamedGroupsPerMatchSeq(bnNGPMRe, bnNGPMIn) {
+			sinkMap = m
+		}
+	})
 }
 
 // ── Replace ───────────────────────────────────────────────────────────────────

@@ -42,6 +42,8 @@ By use case:
   - Pull every named group from one match (map): [NamedGroups]
   - Pull every named group from one match, keeping every value when a group
     name is reused inside the pattern (map of slices): [AllNamedGroups]
+  - Pull every named group across all matches (one map per match):
+    [NamedGroupsPerMatch], or lazily [NamedGroupsPerMatchSeq]
   - Substitute named-group spans by name: [Replace]
   - Assert at startup that required groups are declared: [Validate]
   - Decode one match into a struct: [Unmarshal]
@@ -72,6 +74,8 @@ the no-match form that lets the caller continue without a special-case branch.
 	FindAllNamed                              []string{} (or nil if the group
 	                                          name is not declared on the regex)
 	NamedGroups, AllNamedGroups               empty map (initialized, not nil)
+	NamedGroupsPerMatch                       []map[string]string{} (empty, not nil)
+	NamedGroupsPerMatchSeq                    iterator yields zero times
 	Replace                                   target returned unchanged
 	Validate                                  unrelated — checks declarations,
 	                                          not matches against a target
@@ -183,6 +187,7 @@ package regextra
 import (
 	"cmp"
 	"fmt"
+	"iter"
 	"regexp"
 	"slices"
 	"strings"
@@ -305,6 +310,75 @@ func NamedGroups(re *regexp.Regexp, target string) map[string]string {
 	return namedGroupValues(re, target, m, true)
 }
 
+// NamedGroupsPerMatch returns one map of named-group values per match of re in
+// target, in match order — the every-match counterpart to [NamedGroups]. Each
+// map follows the same per-match semantics as [NamedGroups]: every declared
+// group is present, a group that did not participate in that match is mapped to
+// "", and when the pattern reuses a group name the last participating
+// occurrence in that match wins.
+//
+// On no match, returns an empty (non-nil) slice. See the package doc's
+// "No-match behavior" section for the full cross-API contract. For the lazy,
+// allocation-light streaming form, use [NamedGroupsPerMatchSeq]. For the typed
+// equivalent that decodes each match into a struct, use [UnmarshalAll] /
+// [Decoder.All].
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+//	all := regextra.NamedGroupsPerMatch(re, "a=1 b=2")
+//	// all = []map[string]string{{"key": "a", "value": "1"}, {"key": "b", "value": "2"}}
+func NamedGroupsPerMatch(re *regexp.Regexp, target string) []map[string]string {
+	locs := re.FindAllStringSubmatchIndex(target, -1)
+	if len(locs) == 0 {
+		return []map[string]string{}
+	}
+	names := re.SubexpNames()
+	out := make([]map[string]string, len(locs))
+	for i, m := range locs {
+		result := make(map[string]string, len(names))
+		fillNamedGroupValues(result, names, target, m, true)
+		out[i] = result
+	}
+	return out
+}
+
+// NamedGroupsPerMatchSeq is the range-over-func (Go 1.23+) form of
+// [NamedGroupsPerMatch]: it yields one named-group map per match of re in
+// target, in match order, without building the intermediate slice. Each yielded
+// map follows the same per-match semantics as [NamedGroups]. Stopping the range
+// early stops the iteration.
+//
+// On no match, the iterator yields zero times. See the package doc's "No-match
+// behavior" section for the full cross-API contract. For the typed streaming
+// equivalent, use [Decoder.Iter].
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+//	for m := range regextra.NamedGroupsPerMatchSeq(re, "a=1 b=2") {
+//	    fmt.Println(m["key"], m["value"])
+//	}
+//	// Output:
+//	// a 1
+//	// b 2
+func NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[string]string] {
+	return func(yield func(map[string]string) bool) {
+		locs := re.FindAllStringSubmatchIndex(target, -1)
+		if len(locs) == 0 {
+			return
+		}
+		names := re.SubexpNames()
+		for _, m := range locs {
+			result := make(map[string]string, len(names))
+			fillNamedGroupValues(result, names, target, m, true)
+			if !yield(result) {
+				return
+			}
+		}
+	}
+}
+
 // namedGroupValues builds the group-name→value map for one match, given the
 // match's index pairs from FindStringSubmatchIndex (or one element of
 // FindAllStringSubmatchIndex). Index pairs distinguish "did not participate"
@@ -361,10 +435,11 @@ func fillNamedGroupValues(dst map[string]string, names []string, target string, 
 // The leading "All" refers to all named groups in one match — not to all
 // matches across the target. Internally the function calls FindStringSubmatch,
 // so only the first match contributes values. To collect every value of a
-// single named group across every match in the target, use [FindAllNamed].
-// There is no current function that returns every named group across every
-// match (i.e. []map[string]string); the unmarshal path ([UnmarshalAll],
-// [Decoder.All], [Decoder.Iter]) is the typed equivalent.
+// single named group across every match in the target, use [FindAllNamed]. To
+// collect every named group across every match as one map per match, use
+// [NamedGroupsPerMatch] (or [NamedGroupsPerMatchSeq] for the lazy form); the
+// unmarshal path ([UnmarshalAll], [Decoder.All], [Decoder.Iter]) is the typed
+// equivalent.
 //
 // On no match, returns an empty (non-nil) map. See the package doc's
 // "No-match behavior" section for the full cross-API contract.

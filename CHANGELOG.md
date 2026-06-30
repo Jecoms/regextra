@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`NamedGroupsPerMatch(re *regexp.Regexp, target string) []map[string]string`** and **`NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[string]string]`** — the every-match counterparts to `NamedGroups`, returning one named-group map per match (slice form) or yielding them lazily (range-over-func form). Each per-match map follows `NamedGroups` semantics: every declared group present, non-participating groups mapped to `""`, and reused names resolved to the last participating occurrence in that match. Fills the gap the `AllNamedGroups` godoc previously disclaimed ("no current function that returns every named group across every match"). Names deliberately avoid the overloaded "All" token. Additive, non-breaking. ([#118](https://github.com/Jecoms/regextra/issues/118))
+
 ### Fixed
 
 - **`regex:"-"` now excludes a field instead of falling back to field-name matching. (Breaking.)** Previously `parseFieldTag` collapsed `regex:"-"` and `regex:""` to the same "no name" result, so a field tagged `regex:"-"` would still be populated if a declared group happened to share the field's name — the opposite of the `-` convention in `encoding/json`, `encoding/xml`, and `gopkg.in/yaml`. Now the bare `-` tag excludes the field entirely from both `Unmarshal`/`UnmarshalAll` and `Decoder`. `Decoder` and `UnmarshalAll` build a fresh result, so the field is left at its zero value; `Unmarshal` writes into the caller's struct in place and never resets it, so the field keeps whatever it already held (the zero value for a freshly declared struct). An absent tag (`regex:""`) still falls back to the field's own name as before. Only the bare `-` excludes; a leading `-` followed by options (e.g. `regex:"-,default=x"`) still parses `-` as the group name. **Observable behavior change:** a field tagged `regex:"-"` whose name matches a group is no longer populated. ([#106](https://github.com/Jecoms/regextra/issues/106))
