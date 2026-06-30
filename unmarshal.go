@@ -257,14 +257,14 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 	opts = make(map[string]string, len(parts)-1)
 	for _, p := range parts[1:] {
 		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
 		k, v, ok := strings.Cut(p, "=")
 		if !ok {
-			// Lone token without '='. Reserved for future flag-style options;
-			// silently ignored today rather than rejected to keep the parser
-			// forward-compatible.
+			// No '=': either a lone token (reserved for future flag-style
+			// options, e.g. `required`) or an empty piece (a doubled, leading,
+			// or trailing comma). Both are silently ignored rather than rejected
+			// to keep the parser forward-compatible. An empty piece needs no
+			// separate guard: strings.Cut("", "=") returns ok=false, so it lands
+			// here too.
 			continue
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
