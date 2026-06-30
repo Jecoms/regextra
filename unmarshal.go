@@ -93,19 +93,24 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 		return fmt.Errorf("regextra: Unmarshal requires a pointer to a struct, got pointer to %s", elem.Kind())
 	}
 
-	// Find the match. The Index variant distinguishes non-participating
-	// group occurrences from empty matches, which namedGroupValues needs to
-	// handle duplicate group names correctly.
+	// Find the match. The Index variant distinguishes non-participating group
+	// occurrences from empty matches, which runDecodePlan needs to pick the
+	// occurrence that actually participated when a name is reused.
 	matches := re.FindStringSubmatchIndex(target)
 	if matches == nil {
 		return nil // No match, but not an error
 	}
 
-	// Populate the struct fields. includeNonParticipating=false: a declared
-	// optional group that did not participate in the match is omitted rather
-	// than recorded as "", so populateStruct leaves the field at its zero
-	// value instead of feeding "" to a typed conversion (which would error).
-	return populateStruct(elem, namedGroupValues(re, target, matches, false))
+	// Build an uncached decode plan for this struct and run it — the same plan
+	// build/run the cached Decoder uses, in lenient mode (strict=false) so
+	// Unmarshal stays best-effort rather than erroring on undeclared groups or
+	// misplaced tag options. buildDecodePlan never returns an error when
+	// strict=false; the check is kept for forward-safety.
+	fields, err := buildDecodePlan(elem.Type(), re, false)
+	if err != nil {
+		return err
+	}
+	return runDecodePlan(fields, elem, target, matches)
 }
 
 // UnmarshalAll extracts all occurrences of the regex pattern from the target string
@@ -144,9 +149,9 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 		return fmt.Errorf("regextra: UnmarshalAll requires a slice of structs, got slice of %s", sliceElemType.Kind())
 	}
 
-	// Find all matches. The Index variant distinguishes non-participating
-	// group occurrences from empty matches, which namedGroupValues needs to
-	// handle duplicate group names correctly.
+	// Find all matches. The Index variant distinguishes non-participating group
+	// occurrences from empty matches, which runDecodePlan needs to pick the
+	// occurrence that actually participated when a name is reused.
 	allMatches := re.FindAllStringSubmatchIndex(target, -1)
 	if len(allMatches) == 0 {
 		// Clear the slice and return (no matches is not an error)
@@ -154,62 +159,25 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 		return nil
 	}
 
-	// SubexpNames is identical for every match, so fetch it once instead of per
-	// match. Reuse a single groupValues map (cleared each iteration) rather than
-	// allocating one per match, and size the result slice up front so each match
-	// decodes into place — avoiding the reflect.New + reflect.Append copy the
-	// append-grow loop paid per match.
-	names := re.SubexpNames()
+	// Build the decode plan once for the whole call, then run it for every match
+	// into a pre-sized slice. This replaces the old per-match map build +
+	// per-field tag re-parse: the plan (group indexes + parsed options) is
+	// computed once and reused, and each match decodes in place — no reflect.New
+	// / reflect.Append copy and no map churn per match. strict=false keeps the
+	// lenient Unmarshal posture (see Unmarshal); the error is never non-nil here.
+	fields, err := buildDecodePlan(sliceElemType, re, false)
+	if err != nil {
+		return err
+	}
 	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
-	groupValues := make(map[string]string, len(names))
 	for idx, matches := range allMatches {
-		// includeNonParticipating=false (see Unmarshal): a non-participating
-		// optional group is omitted so its typed field stays zero, and the
-		// participating occurrence of a reused name wins.
-		clear(groupValues)
-		fillNamedGroupValues(groupValues, names, target, matches, false)
-		if err := populateStruct(newSlice.Index(idx), groupValues); err != nil {
+		if err := runDecodePlan(fields, newSlice.Index(idx), target, matches); err != nil {
 			return err
 		}
 	}
 
 	// Set the slice to the new value
 	elem.Set(newSlice)
-	return nil
-}
-
-// populateStruct fills a struct's fields from a map of capture group values
-func populateStruct(structValue reflect.Value, groupValues map[string]string) error {
-	structType := structValue.Type()
-	for i := range structValue.NumField() {
-		field := structValue.Field(i)
-		fieldType := structType.Field(i)
-
-		// Skip unexported fields
-		if !field.CanSet() {
-			continue
-		}
-
-		// Determine the capture group name and any per-field options for this field
-		groupName, opts, skip := parseFieldTag(fieldType)
-		if skip {
-			// `regex:"-"` excludes the field entirely — no name fallback.
-			continue
-		}
-
-		// Try to find the value for this field
-		value, found := findGroupValue(groupName, fieldType.Name, groupValues)
-		value, ok := resolveGroupValue(value, found, opts)
-		if !ok {
-			continue
-		}
-
-		// Set the field value with type conversion
-		if err := setFieldValue(field, value, opts); err != nil {
-			return fmt.Errorf("regextra: failed to set field %s: %w", fieldType.Name, err)
-		}
-	}
-
 	return nil
 }
 
@@ -277,9 +245,10 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 // state: the matched value when one is usable, the `default=` option when not,
 // or nothing (ok=false, skip the field, leaving it unchanged).
 //
-// This is the single source of truth for the skip-or-default contract shared
-// by Unmarshal (populateStruct) and Decoder.decode — the two paths drifted on
-// exactly this logic once (issue #104), so it lives in one place now.
+// This is the single source of truth for the skip-or-default contract that
+// runDecodePlan applies for both the Unmarshal and Decoder paths — the two
+// paths drifted on exactly this logic once (issue #104), so it lives in one
+// place now.
 //
 // `default=` substitutes when the field has no match OR the match is empty.
 // Empty-match overlap is intentional: regexp returns "" both for
@@ -295,38 +264,6 @@ func resolveGroupValue(value string, found bool, opts map[string]string) (string
 	if def, ok := opts["default"]; ok {
 		return def, true
 	}
-	return "", false
-}
-
-// findGroupValue searches for the value in the group values map
-// Priority order: explicit tag > exact field name > case-insensitive field name
-func findGroupValue(tagName, fieldName string, groupValues map[string]string) (string, bool) {
-	// If there's an explicit tag, use it (highest priority)
-	if tagName != "" {
-		value, found := groupValues[tagName]
-		return value, found
-	}
-
-	// Try exact field name match
-	if value, found := groupValues[fieldName]; found {
-		return value, true
-	}
-
-	// Try case-insensitive match. EqualFold avoids the per-comparison
-	// allocations of ToLower and applies the same Unicode simple-fold the
-	// Decoder's compile-time fallback (matchGroupName) uses. The two paths
-	// share the fold predicate but not the iteration order: this ranges a Go
-	// map (random order) while matchGroupName walks SubexpNames (declaration
-	// order), so if several group names fold-equal one field they can resolve
-	// to different groups, and Unmarshal's choice among them is not stable
-	// across calls. Such fold-collisions are unusual; picking a deterministic
-	// winner is out of scope here.
-	for groupName, value := range groupValues {
-		if strings.EqualFold(groupName, fieldName) {
-			return value, true
-		}
-	}
-
 	return "", false
 }
 

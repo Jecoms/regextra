@@ -118,7 +118,7 @@ var (
 )
 
 // benchCaseInsensitive — untagged fields resolved via the case-insensitive
-// field-name fallback in findGroupValue.
+// field-name fallback (matchGroupName, run once when the decode plan is built).
 type benchCaseInsensitive struct {
 	Name string
 	Age  int
@@ -251,9 +251,9 @@ var (
 // ── Unmarshal ─────────────────────────────────────────────────────────────────
 //
 // Cost model per call: argument-validation guard (reflect.Kind checks),
-// FindStringSubmatch, a groupValues map built from a SubexpNames loop, then
-// populateStruct iterating fields — each running parseFieldTag, findGroupValue,
-// and setFieldValue. setFieldValue dispatches: pointer → RegexUnmarshaler
+// FindStringSubmatchIndex, then buildDecodePlan once (parseFieldTag +
+// group-index resolution per field) and runDecodePlan iterating the plan to
+// call setFieldValue. setFieldValue dispatches: pointer → RegexUnmarshaler
 // (addr / value-receiver) → time.Time / time.Duration → kind switch
 // (string/int/uint/float/bool) → unsupported-type error.
 
@@ -297,10 +297,11 @@ func BenchmarkUnmarshal(b *testing.B) {
 
 // ── UnmarshalAll ──────────────────────────────────────────────────────────────
 //
-// Cost model: FindAllStringSubmatch (whole-target scan + index matrix), then
-// per match a groupValues map build + reflect.New + populateStruct, appended
-// into a slice grown via reflect.Append (incremental regrowth). Scales with
-// match count and per-match field/conversion work.
+// Cost model: FindAllStringSubmatchIndex (whole-target scan + index matrix),
+// buildDecodePlan once for the call, then per match a runDecodePlan pass into a
+// pre-sized slice (reflect.MakeSlice). The plan's group indexes and parsed
+// options are reused across matches, so per-match cost is just the index walk
+// and per-field conversion. Scales with match count and per-match field work.
 
 func BenchmarkUnmarshalAll(b *testing.B) {
 	// edge / no-match contract shape (slice length set to 0).
