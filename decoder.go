@@ -255,8 +255,13 @@ func resolveGroupName(re *regexp.Regexp, sf reflect.StructField, groupIndexes []
 
 // One returns the result of decoding the first match of d's pattern in target.
 // Returns [ErrNoMatch] if there's no match. Other errors indicate a per-field
-// conversion failure; in that case the returned T contains whatever fields
-// were successfully decoded before the failure.
+// conversion failure (a [DecodeError]); in that case the returned T contains
+// whatever fields were successfully decoded before the failure. A matched field
+// whose type is a nested struct, slice, or map is one such failure: these are
+// not flattened, so binding a group to one yields an "unsupported field type"
+// error (unless the type implements [RegexUnmarshaler] or
+// encoding.TextUnmarshaler, which convert themselves). The same applies to
+// [Decoder.All] and [Decoder.Iter], which share One's decode path.
 //
 // One uses the [ErrNoMatch] sentinel because the (T, error) return shape would
 // otherwise make "no match" indistinguishable from "decoded a struct of all

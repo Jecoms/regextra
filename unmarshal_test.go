@@ -1837,8 +1837,8 @@ func TestUnmarshal_TextUnmarshaler_Error(t *testing.T) {
 	}
 }
 
-// TestUnmarshal_TextUnmarshaler_Value covers the addressable (CanAddr) error
-// arm. An interface-typed field reaches UnmarshalText via Type().Implements
+// TestUnmarshal_TextUnmarshaler_Error (above) covers the addressable (CanAddr)
+// error arm. An interface-typed field reaches UnmarshalText via Type().Implements
 // instead, so its error arm is distinct — drive it with the same bad input.
 func TestUnmarshal_TextUnmarshaler_InterfaceField_Error(t *testing.T) {
 	type rec struct {
@@ -1852,8 +1852,15 @@ func TestUnmarshal_TextUnmarshaler_InterfaceField_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid netip.Addr via interface field, got nil")
 	}
-	if !strings.Contains(err.Error(), "not-an-ip") {
-		t.Errorf("error %q should mention the offending value", err)
+	var de *rx.DecodeError
+	if !errors.As(err, &de) {
+		t.Fatalf("error %q is not a *DecodeError", err)
+	}
+	if de.Field != "Addr" {
+		t.Errorf("DecodeError.Field = %q, want %q", de.Field, "Addr")
+	}
+	if de.Value != "not-an-ip" {
+		t.Errorf("DecodeError.Value = %q, want %q", de.Value, "not-an-ip")
 	}
 }
 
@@ -2062,8 +2069,18 @@ func TestUnmarshal_unsupportedFieldType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a struct-typed field, got nil")
 	}
-	if !strings.Contains(err.Error(), "unsupported field type") {
-		t.Errorf("error %q, want it to mention %q", err, "unsupported field type")
+	var de *rx.DecodeError
+	if !errors.As(err, &de) {
+		t.Fatalf("error %q is not a *DecodeError", err)
+	}
+	if de.Field != "Field" {
+		t.Errorf("DecodeError.Field = %q, want %q", de.Field, "Field")
+	}
+	if de.Group != "field" {
+		t.Errorf("DecodeError.Group = %q, want %q", de.Group, "field")
+	}
+	if !strings.Contains(de.Unwrap().Error(), "unsupported field type") {
+		t.Errorf("underlying error %q, want it to mention %q", de.Unwrap(), "unsupported field type")
 	}
 }
 

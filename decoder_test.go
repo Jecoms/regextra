@@ -60,6 +60,67 @@ func TestCompile_fieldNameExactMatch(t *testing.T) {
 	}
 }
 
+// Typed-path sibling of TestUnmarshal_unsupportedFieldType: a field whose kind
+// setFieldValue can't convert (a nested struct here; a slice or map behaves the
+// same) and which implements neither RegexUnmarshaler nor encoding.TextUnmarshaler
+// passes Compile (which validates tags, not field kinds) and surfaces the
+// "unsupported field type" arm as a *DecodeError at decode time via One.
+func TestDecoder_unsupportedFieldType(t *testing.T) {
+	type Nested struct{ X string }
+	type rec struct {
+		Field Nested `regex:"field"`
+	}
+
+	d, err := rx.Compile[rec](`(?P<field>\w+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want nil (field kinds are validated at decode, not compile)", err)
+	}
+	_, err = d.One("hello")
+	if err == nil {
+		t.Fatal("expected an error for a struct-typed field, got nil")
+	}
+	var de *rx.DecodeError
+	if !errors.As(err, &de) {
+		t.Fatalf("error %q is not a *DecodeError", err)
+	}
+	if de.Field != "Field" {
+		t.Errorf("DecodeError.Field = %q, want %q", de.Field, "Field")
+	}
+	if de.Group != "field" {
+		t.Errorf("DecodeError.Group = %q, want %q", de.Group, "field")
+	}
+	if !strings.Contains(de.Unwrap().Error(), "unsupported field type") {
+		t.Errorf("underlying error %q, want it to mention %q", de.Unwrap(), "unsupported field type")
+	}
+}
+
+// Typed-path sibling of TestUnmarshal_untaggedFieldNoMatchingGroupSkipped: an
+// untagged exported field matching no declared group, with no default= to fall
+// back on, is skipped by the decode plan (buildDecodePlan, shared with Unmarshal)
+// rather than failing Compile — only a *tagged* missing-group reference is a
+// strict-build error. The field is left at its zero value.
+func TestDecoder_untaggedFieldNoMatchingGroupSkipped(t *testing.T) {
+	type rec struct {
+		Name    string `regex:"name"`
+		Missing string // no tag, no "missing"/"Missing" group, no default — skipped
+	}
+
+	d, err := rx.Compile[rec](`(?P<name>\w+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want nil (unmapped untagged field should be skipped)", err)
+	}
+	got, err := d.One("Alice")
+	if err != nil {
+		t.Fatalf("One() error = %v, want nil", err)
+	}
+	if got.Name != "Alice" {
+		t.Errorf("Name = %q, want %q", got.Name, "Alice")
+	}
+	if got.Missing != "" {
+		t.Errorf("Missing = %q, want it left at the zero value %q", got.Missing, "")
+	}
+}
+
 // ── Compile: error paths ──────────────────────────────────────────────────────
 
 func TestCompile_invalidPattern(t *testing.T) {
