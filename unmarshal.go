@@ -119,6 +119,10 @@ func (e *DecodeError) Unwrap() error { return e.Err }
 // Returns an error if:
 //   - v is not a pointer to a struct
 //   - Type conversion fails on a matched group
+//   - A matched field is a nested struct, slice, or map: these are not
+//     flattened, so a group bound to one yields an "unsupported field type"
+//     error (unless the type implements [RegexUnmarshaler] or
+//     encoding.TextUnmarshaler, which convert themselves)
 //
 // Example:
 //
