@@ -202,10 +202,10 @@ if err := regextra.Validate(re, "name", "age", "ssn"); err != nil {
 }
 ```
 
-On failure `Validate` returns an `errors.As`-able `*regextra.ValidationError` whose `Missing` field carries the absent group names (in the order passed), so you can branch on the missing set without parsing the message — see [§Stability](#stability) on comparing types, not strings:
+On failure `Validate` returns an `errors.As`-able `*regextra.MissingNamedGroupsError` whose `Missing` field carries the absent group names (in the order passed), so you can branch on the missing set without parsing the message — see [§Stability](#stability) on comparing types, not strings:
 
 ```go
-var ve *regextra.ValidationError
+var ve *regextra.MissingNamedGroupsError
 if errors.As(err, &ve) {
     // ve.Missing == []string{"ssn"}
 }

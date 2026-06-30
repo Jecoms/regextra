@@ -761,11 +761,11 @@ func TestValidate(t *testing.T) {
 	})
 }
 
-// TestValidateValidationError verifies that Validate surfaces an
-// errors.As-able *ValidationError whose Missing field carries the absent
+// TestValidateMissingNamedGroupsError verifies that Validate surfaces an
+// errors.As-able *MissingNamedGroupsError whose Missing field carries the absent
 // required group names in the order they were passed, while keeping the
 // prefixed message non-breaking.
-func TestValidateValidationError(t *testing.T) {
+func TestValidateMissingNamedGroupsError(t *testing.T) {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 
 	t.Run("recovers typed error in request order", func(t *testing.T) {
@@ -773,13 +773,13 @@ func TestValidateValidationError(t *testing.T) {
 		if err == nil {
 			t.Fatal("Validate returned nil, want error")
 		}
-		var ve *rx.ValidationError
+		var ve *rx.MissingNamedGroupsError
 		if !errors.As(err, &ve) {
-			t.Fatalf("error %q is not a *ValidationError", err)
+			t.Fatalf("error %q is not a *MissingNamedGroupsError", err)
 		}
 		want := []string{"ssn", "email", "phone"}
 		if !reflect.DeepEqual(ve.Missing, want) {
-			t.Errorf("ValidationError.Missing = %v, want %v", ve.Missing, want)
+			t.Errorf("MissingNamedGroupsError.Missing = %v, want %v", ve.Missing, want)
 		}
 		// Message stays prefixed and non-breaking (loose match per §Stability).
 		if !strings.HasPrefix(err.Error(), "regextra.Validate:") {
@@ -792,30 +792,30 @@ func TestValidateValidationError(t *testing.T) {
 
 	t.Run("single missing", func(t *testing.T) {
 		err := rx.Validate(re, "name", "ssn")
-		var ve *rx.ValidationError
+		var ve *rx.MissingNamedGroupsError
 		if !errors.As(err, &ve) {
-			t.Fatalf("error %q is not a *ValidationError", err)
+			t.Fatalf("error %q is not a *MissingNamedGroupsError", err)
 		}
 		if want := []string{"ssn"}; !reflect.DeepEqual(ve.Missing, want) {
-			t.Errorf("ValidationError.Missing = %v, want %v", ve.Missing, want)
+			t.Errorf("MissingNamedGroupsError.Missing = %v, want %v", ve.Missing, want)
 		}
 	})
 
-	t.Run("nil error is not a ValidationError", func(t *testing.T) {
+	t.Run("nil error is not a MissingNamedGroupsError", func(t *testing.T) {
 		err := rx.Validate(re, "name", "age")
-		var ve *rx.ValidationError
+		var ve *rx.MissingNamedGroupsError
 		if errors.As(err, &ve) {
 			t.Errorf("errors.As recovered %+v from a nil error, want false", ve)
 		}
 	})
 
-	// A directly-constructed ValidationError with no Missing names must not
+	// A directly-constructed MissingNamedGroupsError with no Missing names must not
 	// render a dangling "missing named groups: " separator. Validate never
 	// produces this (it only wraps a non-empty set), but the type is exported.
 	t.Run("empty Missing renders clean message", func(t *testing.T) {
-		for _, ve := range []*rx.ValidationError{{}, {Missing: []string{}}} {
+		for _, ve := range []*rx.MissingNamedGroupsError{{}, {Missing: []string{}}} {
 			if got, want := ve.Error(), "no missing named groups"; got != want {
-				t.Errorf("(&ValidationError{Missing:%v}).Error() = %q, want %q", ve.Missing, got, want)
+				t.Errorf("(&MissingNamedGroupsError{Missing:%v}).Error() = %q, want %q", ve.Missing, got, want)
 			}
 		}
 	})

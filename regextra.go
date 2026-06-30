@@ -611,13 +611,13 @@ func replaceNamed(re *regexp.Regexp, target string, replFor func(name, matched s
 	return b.String()
 }
 
-// ValidationError reports the required group names that [Validate] could not
-// find declared on the pattern. It is returned (wrapped with the
+// MissingNamedGroupsError reports the required group names that [Validate]
+// could not find declared on the pattern. It is returned (wrapped with the
 // `regextra.Validate:` prefix) whenever at least one required name is missing.
 // Recover it with [errors.As] to branch on the missing set without parsing
 // message text:
 //
-//	var ve *regextra.ValidationError
+//	var ve *regextra.MissingNamedGroupsError
 //	if errors.As(err, &ve) {
 //	    log.Printf("pattern is missing groups: %v", ve.Missing)
 //	}
@@ -625,7 +625,7 @@ func replaceNamed(re *regexp.Regexp, target string, replFor func(name, matched s
 // Missing lists the absent names in the order they were passed to Validate.
 // Unlike [DecodeError] there is no underlying cause to unwrap — Missing is the
 // payload.
-type ValidationError struct {
+type MissingNamedGroupsError struct {
 	// Missing holds the declared-but-absent required group names, in the order
 	// they were passed to Validate.
 	Missing []string
@@ -636,7 +636,7 @@ type ValidationError struct {
 // reachable by constructing the value directly — Validate never wraps an
 // empty set) it reports "no missing named groups" rather than a message with
 // a dangling separator.
-func (e *ValidationError) Error() string {
+func (e *MissingNamedGroupsError) Error() string {
 	if len(e.Missing) == 0 {
 		return "no missing named groups"
 	}
@@ -649,7 +649,7 @@ func (e *ValidationError) Error() string {
 // (mis-)matched request.
 //
 // Returns nil when every required name is declared. On failure it returns an
-// [errors.As]-able *[ValidationError] whose Missing field lists the missing
+// [errors.As]-able *[MissingNamedGroupsError] whose Missing field lists the missing
 // names in the order they were passed.
 //
 // Example:
@@ -674,5 +674,5 @@ func Validate(re *regexp.Regexp, required ...string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("regextra.Validate: %w", &ValidationError{Missing: missing})
+	return fmt.Errorf("regextra.Validate: %w", &MissingNamedGroupsError{Missing: missing})
 }
