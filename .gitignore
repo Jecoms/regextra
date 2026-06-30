@@ -34,3 +34,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Personal agent/assistant workflow files
+AGENTS.md
+CLAUDE.md
