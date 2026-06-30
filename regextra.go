@@ -43,6 +43,7 @@ By use case:
   - Pull every named group from one match, keeping every value when a group
     name is reused inside the pattern (map of slices): [AllNamedGroups]
   - Substitute named-group spans by name: [Replace]
+  - Substitute named-group spans with a callback over the matched value: [ReplaceFunc]
   - Assert at startup that required groups are declared: [Validate]
   - Decode one match into a struct: [Unmarshal]
   - Decode all matches into a slice of structs: [UnmarshalAll]
@@ -73,6 +74,8 @@ the no-match form that lets the caller continue without a special-case branch.
 	                                          name is not declared on the regex)
 	NamedGroups, AllNamedGroups               empty map (initialized, not nil)
 	Replace                                   target returned unchanged
+	ReplaceFunc                               target returned unchanged (fn
+	                                          never called)
 	Validate                                  unrelated — checks declarations,
 	                                          not matches against a target
 	Unmarshal                                 nil error; destination struct left
@@ -424,6 +427,57 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 	if len(replacements) == 0 {
 		return target
 	}
+	return replaceNamed(re, target, func(name, _ string) (string, bool) {
+		repl, ok := replacements[name]
+		return repl, ok
+	})
+}
+
+// ReplaceFunc substitutes the matched span of each named capture group in
+// target with the string returned by fn, which is called with the group's name
+// and the text it matched. Like [Replace] it operates on every match of re, in
+// order — but the replacement is computed from the matched value rather than
+// looked up in a static map. Use it for substitutions that depend on what
+// matched: redaction (mask all but the last four digits of a card number),
+// normalization (lowercase a captured host), and similar.
+//
+// fn runs once per substituted named span, left to right. To leave a group
+// unchanged, return its match verbatim. This differs from [Replace], which
+// passes a group through when it is absent from the map: every participating
+// named group reaches fn, so fn itself decides what to keep. Passing a nil fn
+// is a programmer error — it panics on the first match, mirroring the standard
+// library's [regexp.Regexp.ReplaceAllStringFunc].
+//
+// When named groups overlap (nesting), the outermost named group whose span is
+// encountered first wins; fn is not called for inner groups inside an
+// already-substituted span — matching [Replace]'s overlap rule.
+//
+// On no match, returns target unchanged and never calls fn. See the package
+// doc's "No-match behavior" section for the full cross-API contract.
+//
+// Example — mask all but the last four digits of a captured card number:
+//
+//	re := regexp.MustCompile(`(?P<card>\d{12,19})`)
+//	out := regextra.ReplaceFunc(re, "card 4111111111111111 ok", func(group, match string) string {
+//	    return strings.Repeat("*", len(match)-4) + match[len(match)-4:]
+//	})
+//	// out = "card ************1111 ok"
+func ReplaceFunc(re *regexp.Regexp, target string, fn func(group, match string) string) string {
+	return replaceNamed(re, target, func(name, matched string) (string, bool) {
+		return fn(name, matched), true
+	})
+}
+
+// replaceNamed is the shared substitution engine behind [Replace] and
+// [ReplaceFunc]. It walks every match of re over target and, for each
+// participating named group, asks replFor for the replacement; replFor reports
+// false to pass the group's matched text through unchanged.
+//
+// replFor is resolved at apply time and only for spans that actually win the
+// overlap rule, so a group skipped by an enclosing outermost span never reaches
+// it — [ReplaceFunc] therefore never invokes its callback for an inner group it
+// suppresses, and [Replace] does its map lookup only where it matters.
+func replaceNamed(re *regexp.Regexp, target string, replFor func(name, matched string) (string, bool)) string {
 	matches := re.FindAllStringSubmatchIndex(target, -1)
 	if len(matches) == 0 {
 		return target
@@ -432,7 +486,7 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 
 	type span struct {
 		start, end int
-		repl       string
+		name       string
 	}
 
 	var b strings.Builder
@@ -445,15 +499,11 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 			if name == "" {
 				continue
 			}
-			repl, ok := replacements[name]
-			if !ok {
-				continue
-			}
 			s, e := m[2*i], m[2*i+1]
 			if s < 0 || e < 0 {
 				continue
 			}
-			spans = append(spans, span{start: s, end: e, repl: repl})
+			spans = append(spans, span{start: s, end: e, name: name})
 		}
 		// Sort by start ascending, then end descending: when named groups share
 		// a start offset (nested groups), the outermost span — the one with the
@@ -472,8 +522,12 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 			if sp.start < cursor {
 				continue // already covered (overlap with an earlier substitution)
 			}
+			repl, ok := replFor(sp.name, target[sp.start:sp.end])
+			if !ok {
+				continue // group passes through unchanged; cursor not advanced
+			}
 			b.WriteString(target[cursor:sp.start])
-			b.WriteString(sp.repl)
+			b.WriteString(repl)
 			cursor = sp.end
 		}
 	}

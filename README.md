@@ -150,6 +150,21 @@ out := regextra.Replace(re, "alice@example.com bob@other.org", map[string]string
 // out = "alice@redacted bob@redacted"
 ```
 
+### `ReplaceFunc(re *regexp.Regexp, target string, fn func(group, match string) string) string`
+
+Like `Replace`, but the replacement for each named-group span is computed by a callback over the matched value instead of looked up in a static map. Use it when the substitution depends on what matched — redaction, normalization, and similar. `fn` is called once per substituted named span, left to right, with the group's name and matched text; return the match verbatim to leave a group unchanged. On no match the target is returned unchanged and `fn` is never called. Passing a nil `fn` is a programmer error and panics on the first match, mirroring the standard library's `Regexp.ReplaceAllStringFunc`.
+
+When named groups overlap (nesting), the outermost group whose span is encountered first wins and `fn` is not called for inner groups inside an already-substituted span — the same overlap rule as `Replace`.
+
+```go
+// Mask all but the last four digits of a captured card number:
+re := regexp.MustCompile(`(?P<card>\d{12,19})`)
+out := regextra.ReplaceFunc(re, "card 4111111111111111 ok", func(group, match string) string {
+    return strings.Repeat("*", len(match)-4) + match[len(match)-4:]
+})
+// out = "card ************1111 ok"
+```
+
 ### `Validate(re *regexp.Regexp, required ...string) error`
 
 Returns an error listing every required group name that is not declared on `re`. Use it for init-time assertions in services that compile patterns once: catch typos at startup rather than at the first (mis-)matched request.

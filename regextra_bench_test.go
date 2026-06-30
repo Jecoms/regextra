@@ -288,6 +288,35 @@ func BenchmarkReplace(b *testing.B) {
 	benchCase(b, "longReplacement", func() { sinkStr = rx.Replace(bnRepEmailRe, bnRepMulti100In, bnRepLongMap) }) // Builder growth
 }
 
+// ── ReplaceFunc ─────────────────────────────────────────────────────────────
+//
+// Same span engine as Replace, but the replacement is computed per applied span
+// by a caller callback over the matched value rather than a map lookup. Cost
+// dimensions mirror Replace (match count, groups-per-match sort size); the extra
+// axis is callback cost — bnRepFuncIdentity returns the match verbatim to isolate
+// dispatch overhead, bnRepFuncUpper does real per-span work.
+
+var (
+	bnRepFuncIdentity = func(_, m string) string { return m }
+	bnRepFuncUpper    = func(_, m string) string { return strings.ToUpper(m) }
+)
+
+func BenchmarkReplaceFunc(b *testing.B) {
+	// representative — one match, then a realistic 100-match batch.
+	benchCase(b, "singleGroup", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepSingleIn, bnRepFuncUpper) })
+	benchCase(b, "matches100", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepMulti100In, bnRepFuncUpper) })
+	// edge — no match takes the early return; fn is never called.
+	benchCase(b, "noMatch", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepNoMatchIn, bnRepFuncUpper) })
+	// dispatch-only — identity callback isolates closure/indirection cost.
+	benchCase(b, "identity", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepMulti100In, bnRepFuncIdentity) })
+	// pathological — overlap (outermost wins, inner fn suppressed) and optional skip.
+	benchCase(b, "nestedGroups", func() { sinkStr = rx.ReplaceFunc(bnRepNestRe, bnRepSingleIn, bnRepFuncUpper) })
+	benchCase(b, "optionalNonParticipating", func() { sinkStr = rx.ReplaceFunc(bnRepOptRe, bnRepOptIn, bnRepFuncUpper) })
+	// scaling — sort size per match and match count.
+	benchCase(b, "manyGroupsPerMatch", func() { sinkStr = rx.ReplaceFunc(bnRepManyGRe, bnRepManyGIn, bnRepFuncUpper) })
+	benchCase(b, "largeManyMatches", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepMulti1200In, bnRepFuncUpper) })
+}
+
 // ── Validate ──────────────────────────────────────────────────────────────────
 //
 // Cost model: build a set of declared names from SubexpNames (scales with
