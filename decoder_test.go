@@ -678,6 +678,55 @@ func TestDecoder_tagForwardCompatRules(t *testing.T) {
 	}
 }
 
+// TestDecoderDecodeError verifies the typed decode path surfaces an
+// errors.As-able *DecodeError with Field/Group/Value/Type populated, wrapped
+// under each entrypoint's regextra.<Entrypoint>: prefix (asserted loosely per
+// the Stability contract).
+func TestDecoderDecodeError(t *testing.T) {
+	type Person struct {
+		Age int `regex:"age"`
+	}
+	dec := rx.MustCompile[Person](`(?P<age>\w+)`)
+
+	assertDecodeErr := func(t *testing.T, err error, wantPrefix, wantValue string) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("got nil error, want a conversion failure")
+		}
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %q is not a *DecodeError", err)
+		}
+		if de.Field != "Age" || de.Group != "age" || de.Value != wantValue || de.Type != "int" {
+			t.Errorf("DecodeError = %+v, want Field=Age Group=age Value=%q Type=int", de, wantValue)
+		}
+		if de.Unwrap() == nil {
+			t.Error("DecodeError.Unwrap() = nil, want the underlying cause")
+		}
+		if !strings.HasPrefix(err.Error(), wantPrefix) {
+			t.Errorf("error = %q, want prefix %q", err.Error(), wantPrefix)
+		}
+	}
+
+	t.Run("One", func(t *testing.T) {
+		_, err := dec.One("notanumber")
+		assertDecodeErr(t, err, "regextra.Decoder.One:", "notanumber")
+	})
+
+	t.Run("All", func(t *testing.T) {
+		_, err := dec.All("12 bad")
+		assertDecodeErr(t, err, "regextra.Decoder.All:", "bad")
+	})
+
+	t.Run("Iter", func(t *testing.T) {
+		var iterErr error
+		for _, err := range dec.Iter("bad") {
+			iterErr = err
+		}
+		assertDecodeErr(t, iterErr, "regextra.Decoder.Iter:", "bad")
+	})
+}
+
 // ── Shared decode-plan extraction (#108) ──────────────────────────────────────
 
 // Locks the extracted shared decode core against drift. The #108 refactor split

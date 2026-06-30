@@ -36,7 +36,7 @@ The audit that pinned every public surface as v1 contract lives in [docs/v1-read
 - Adding a new exported function, type, or method.
 - Adding a new option to the `regex:"..."` struct tag grammar.
 - Accepting additional field types in `Unmarshal` / `UnmarshalAll` / `Decoder`.
-- Changing the wording of error messages. Do not pattern-match on `err.Error()` strings; compare against the exported sentinels (e.g. `regextra.ErrNoMatch` with `errors.Is`) instead.
+- Changing the wording of error messages. Do not pattern-match on `err.Error()` strings; compare against the exported sentinels (e.g. `regextra.ErrNoMatch` with `errors.Is`) or recover the typed `*regextra.DecodeError` with `errors.As` instead.
 
 ## Usage
 
@@ -368,6 +368,17 @@ people, _ := personDecoder.All("Alice is 30 and Bob is 25")
 This is the strictness you want for "compile once" — typos fail at startup, not at first request.
 
 `Decoder.One` returns `regextra.ErrNoMatch` (compare with `errors.Is`) when there's no match. Other errors indicate per-field conversion failure on a successful match.
+
+**Typed conversion failures.** When a matched group value can't be converted to its field type, every decode entrypoint (`Unmarshal`, `UnmarshalAll`, `Decoder.One`/`All`/`Iter`) returns a `*regextra.DecodeError` carrying the field name, capture group, raw value, target type, and wrapped cause. Recover it with `errors.As` to branch without parsing message text:
+
+```go
+var de *regextra.DecodeError
+if errors.As(err, &de) {
+    log.Printf("field %s (group %s): cannot parse %q as %s", de.Field, de.Group, de.Value, de.Type)
+}
+```
+
+Constructed errors are prefixed with the entrypoint that produced them (`regextra.Unmarshal:`, `regextra.Decoder.One:`, …); the bare `regextra:` prefix is reserved for package-level sentinels like `ErrNoMatch`. Treat these prefixes as informational — compare against the sentinel or the `*DecodeError` type, not the string.
 
 **Streaming with `Decoder.Iter`:**
 

@@ -233,6 +233,26 @@ func matchGroupName(re *regexp.Regexp, fieldName string) string {
 	return ""
 }
 
+// resolveGroupName reports the capture-group name a field decoded from, for
+// DecodeError.Group. It is computed lazily — only when building a DecodeError —
+// so the name need not be retained per field in the plan (which would cost bytes
+// on every uncached Unmarshal/UnmarshalAll plan build).
+//
+// When the field mapped to a declared group (groupIndexes non-empty), the name
+// is recovered from the regexp's cached SubexpNames without allocating; any
+// occurrence of a reused name resolves to the same string. The empty case — a
+// default-only field with no declared group — is reached only when a `default=`
+// value itself fails to convert on the lenient Unmarshal path; there the name is
+// the explicit tag (or "" if untagged), worth re-parsing the tag for in that
+// rare case. This matches the name buildDecodePlan resolved at build time.
+func resolveGroupName(re *regexp.Regexp, sf reflect.StructField, groupIndexes []int) string {
+	if len(groupIndexes) > 0 {
+		return re.SubexpNames()[groupIndexes[0]]
+	}
+	name, _, _ := parseFieldTag(sf)
+	return name
+}
+
 // One returns the result of decoding the first match of d's pattern in target.
 // Returns [ErrNoMatch] if there's no match. Other errors indicate a per-field
 // conversion failure; in that case the returned T contains whatever fields
@@ -250,7 +270,7 @@ func (d *Decoder[T]) One(target string) (T, error) {
 	var v T
 	rv := reflect.ValueOf(&v).Elem()
 	if err := d.decode(rv, target, matches); err != nil {
-		return v, err
+		return v, fmt.Errorf("regextra.Decoder.One: %w", err)
 	}
 	return v, nil
 }
@@ -303,6 +323,9 @@ func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {
 			var v T
 			rv := reflect.ValueOf(&v).Elem()
 			err := d.decode(rv, target, matches)
+			if err != nil {
+				err = fmt.Errorf("regextra.Decoder.Iter: %w", err)
+			}
 			if !yield(v, err) {
 				return
 			}
@@ -321,7 +344,7 @@ func (d *Decoder[T]) Pattern() string {
 // over the shared runDecodePlan core, which the [Unmarshal] / [UnmarshalAll]
 // free functions drive too.
 func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) error {
-	return runDecodePlan(d.fields, rv, target, matches)
+	return runDecodePlan(d.re, d.fields, rv, target, matches)
 }
 
 // runDecodePlan executes a decode plan (from buildDecodePlan) against a single
@@ -329,8 +352,9 @@ func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) erro
 // reflect.Value of a struct. matches is a FindStringSubmatchIndex-style index
 // slice (or one element of FindAllStringSubmatchIndex); target is the string
 // those indices slice into. It is the single decode core shared by [Decoder]
-// (One/All/Iter) and the [Unmarshal] / [UnmarshalAll] free functions.
-func runDecodePlan(fields []fieldDecoder, rv reflect.Value, target string, matches []int) error {
+// (One/All/Iter) and the [Unmarshal] / [UnmarshalAll] free functions. re is
+// used only to resolve a field's group name lazily when building a DecodeError.
+func runDecodePlan(re *regexp.Regexp, fields []fieldDecoder, rv reflect.Value, target string, matches []int) error {
 	for _, fd := range fields {
 		// Pick the value the same way the map-based readers do (see
 		// namedGroupValues): the last occurrence that participated in the
@@ -361,8 +385,14 @@ func runDecodePlan(fields []fieldDecoder, rv reflect.Value, target string, match
 		}
 		field := rv.Field(fd.fieldIndex)
 		if err := setFieldValue(field, value, fd.opts); err != nil {
-			fieldName := rv.Type().Field(fd.fieldIndex).Name
-			return fmt.Errorf("field %s: %w", fieldName, err)
+			sf := rv.Type().Field(fd.fieldIndex)
+			return &DecodeError{
+				Field: sf.Name,
+				Group: resolveGroupName(re, sf, fd.groupIndexes),
+				Value: value,
+				Type:  field.Type().String(),
+				Err:   err,
+			}
 		}
 	}
 	return nil

@@ -46,6 +46,55 @@ func parseTime(value string) (time.Time, error) {
 	return time.Time{}, firstErr
 }
 
+// DecodeError reports the failure to convert a matched capture-group value
+// into its destination struct field. It is returned (wrapped with the calling
+// entrypoint's prefix) by [Unmarshal], [UnmarshalAll], [Decoder.One],
+// [Decoder.All], and [Decoder.Iter] when a field's type conversion fails on a
+// participating match. Recover it with [errors.As] to branch on the failure
+// without parsing message text:
+//
+//	var de *regextra.DecodeError
+//	if errors.As(err, &de) {
+//	    log.Printf("field %s (group %s) could not parse %q as %s", de.Field, de.Group, de.Value, de.Type)
+//	}
+//
+// Err holds the underlying conversion cause (e.g. a *strconv.NumError or a
+// time-parsing error) and is reachable via [errors.Is]/[errors.As] through
+// Unwrap. No match is not a DecodeError — [Unmarshal]/[UnmarshalAll] return nil
+// and [Decoder.One] returns [ErrNoMatch] in that case.
+type DecodeError struct {
+	// Field is the destination struct field name.
+	Field string
+	// Group is the capture group the value was read from: the field's
+	// `regex:"..."` tag name when set, otherwise the declared group whose name
+	// matches the field name. It is empty only when the field maps to no
+	// declared group at all — a default-only field. Unmarshal and Decoder share
+	// one decode path, so that empty-Group case differs by strictness, not by
+	// API: it is observable only on the lenient [Unmarshal]/[UnmarshalAll] path,
+	// where a `default=` value that fails to convert raises a DecodeError at
+	// decode time. The strict [Decoder.One]/[Decoder.All]/[Decoder.Iter] path
+	// validates such defaults at [Compile], so it never surfaces an empty-Group
+	// DecodeError at runtime.
+	Group string
+	// Value is the raw matched string (or substituted default) that failed to
+	// convert.
+	Value string
+	// Type is the destination field's type, rendered (e.g. "int", "time.Time").
+	Type string
+	// Err is the underlying conversion error.
+	Err error
+}
+
+// Error implements the error interface. The calling entrypoint prepends its
+// own `regextra.<Entrypoint>:` prefix when wrapping.
+func (e *DecodeError) Error() string {
+	return fmt.Sprintf("field %s: %v", e.Field, e.Err)
+}
+
+// Unwrap returns the underlying conversion error so [errors.Is]/[errors.As]
+// can reach it.
+func (e *DecodeError) Unwrap() error { return e.Err }
+
 // Unmarshal extracts named capture groups from the target string and assigns them
 // to the corresponding fields in the provided struct pointer.
 //
@@ -85,12 +134,12 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 	// Get reflection value and validate it's a pointer to struct
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return fmt.Errorf("regextra: Unmarshal requires a non-nil pointer to a struct, got %T", v)
+		return fmt.Errorf("regextra.Unmarshal: requires a non-nil pointer to a struct, got %T", v)
 	}
 
 	elem := rv.Elem()
 	if elem.Kind() != reflect.Struct {
-		return fmt.Errorf("regextra: Unmarshal requires a pointer to a struct, got pointer to %s", elem.Kind())
+		return fmt.Errorf("regextra.Unmarshal: requires a pointer to a struct, got pointer to %s", elem.Kind())
 	}
 
 	// Find the match. The Index variant distinguishes non-participating group
@@ -108,9 +157,12 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 	// strict=false; the check is kept for forward-safety.
 	fields, err := buildDecodePlan(elem.Type(), re, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("regextra.Unmarshal: %w", err)
 	}
-	return runDecodePlan(fields, elem, target, matches)
+	if err := runDecodePlan(re, fields, elem, target, matches); err != nil {
+		return fmt.Errorf("regextra.Unmarshal: %w", err)
+	}
+	return nil
 }
 
 // UnmarshalAll extracts all occurrences of the regex pattern from the target string
@@ -135,18 +187,18 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	// Get reflection value and validate it's a pointer to slice
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return fmt.Errorf("regextra: UnmarshalAll requires a non-nil pointer to a slice, got %T", v)
+		return fmt.Errorf("regextra.UnmarshalAll: requires a non-nil pointer to a slice, got %T", v)
 	}
 
 	elem := rv.Elem()
 	if elem.Kind() != reflect.Slice {
-		return fmt.Errorf("regextra: UnmarshalAll requires a pointer to a slice, got pointer to %s", elem.Kind())
+		return fmt.Errorf("regextra.UnmarshalAll: requires a pointer to a slice, got pointer to %s", elem.Kind())
 	}
 
 	// Get the slice element type and verify it's a struct
 	sliceElemType := elem.Type().Elem()
 	if sliceElemType.Kind() != reflect.Struct {
-		return fmt.Errorf("regextra: UnmarshalAll requires a slice of structs, got slice of %s", sliceElemType.Kind())
+		return fmt.Errorf("regextra.UnmarshalAll: requires a slice of structs, got slice of %s", sliceElemType.Kind())
 	}
 
 	// Find all matches. The Index variant distinguishes non-participating group
@@ -167,12 +219,12 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	// lenient Unmarshal posture (see Unmarshal); the error is never non-nil here.
 	fields, err := buildDecodePlan(sliceElemType, re, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("regextra.UnmarshalAll: %w", err)
 	}
 	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
 	for idx, matches := range allMatches {
-		if err := runDecodePlan(fields, newSlice.Index(idx), target, matches); err != nil {
-			return err
+		if err := runDecodePlan(re, fields, newSlice.Index(idx), target, matches); err != nil {
+			return fmt.Errorf("regextra.UnmarshalAll: match %d: %w", idx, err)
 		}
 	}
 
