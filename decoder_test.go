@@ -740,8 +740,8 @@ func TestCompile_dashFieldNeedsNoGroup(t *testing.T) {
 // share that result, so a single One probe is sufficient parity coverage.
 func TestDecoder_tagForwardCompatRules(t *testing.T) {
 	type Person struct {
-		Name string `regex:"name,future=42"`              // unknown key: accepted, not rejected
-		Role string `regex:"role,required,default=guest"` // lone token: ignored; default applies
+		Name string `regex:"name,future=42"`         // unknown key: accepted, not rejected
+		Role string `regex:"role,foo,default=guest"` // unrecognized lone token: ignored; default applies
 	}
 	d, err := rx.Compile[Person](`(?P<name>\w+)`) // no "role" group; default fires
 	if err != nil {
@@ -806,6 +806,91 @@ func TestDecoderDecodeError(t *testing.T) {
 			iterErr = err
 		}
 		assertDecodeErr(t, iterErr, "regextra.Decoder.Iter:", "bad")
+	})
+}
+
+// TestDecoderRequired covers the `regex:",required"` flag (#148) on the Decoder
+// paths: One/All/Iter surface an errors.As-able *RequiredGroupError under their
+// own entrypoint prefix when a required group yields no value, while a
+// participating value or a default= satisfies it. It also confirms strict
+// Compile still rejects `required` on an undeclared group with no default (the
+// existing undeclared-group compile check is unchanged by the flag).
+func TestDecoderRequired(t *testing.T) {
+	assertRequiredErr := func(t *testing.T, err error, wantPrefix, wantField, wantGroup string) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("got nil error, want a *RequiredGroupError")
+		}
+		var rge *rx.RequiredGroupError
+		if !errors.As(err, &rge) {
+			t.Fatalf("error %q is not a *RequiredGroupError", err)
+		}
+		if rge.Field != wantField || rge.Group != wantGroup {
+			t.Errorf("RequiredGroupError{Field:%q, Group:%q}, want {%q, %q}", rge.Field, rge.Group, wantField, wantGroup)
+		}
+		if !strings.HasPrefix(err.Error(), wantPrefix) {
+			t.Errorf("error = %q, want prefix %q", err.Error(), wantPrefix)
+		}
+	}
+
+	type T struct {
+		Num int `regex:"num,required"`
+	}
+	dec := rx.MustCompile[T](`x(?P<num>\d+)?`) // optional group, declared
+
+	t.Run("One", func(t *testing.T) {
+		_, err := dec.One("x") // matches; num does not participate
+		assertRequiredErr(t, err, "regextra.Decoder.One:", "Num", "num")
+	})
+
+	t.Run("All", func(t *testing.T) {
+		_, err := dec.All("x42 x") // second match has no num
+		assertRequiredErr(t, err, "regextra.Decoder.All:", "Num", "num")
+	})
+
+	t.Run("Iter", func(t *testing.T) {
+		var iterErr error
+		for _, err := range dec.Iter("x") {
+			iterErr = err
+		}
+		assertRequiredErr(t, iterErr, "regextra.Decoder.Iter:", "Num", "num")
+	})
+
+	t.Run("participating value satisfies", func(t *testing.T) {
+		v, err := dec.One("x42")
+		if err != nil {
+			t.Fatalf("One() error = %v, want nil (required group participated)", err)
+		}
+		if v.Num != 42 {
+			t.Errorf("Num = %d, want 42", v.Num)
+		}
+	})
+
+	t.Run("default satisfies required", func(t *testing.T) {
+		type D struct {
+			Role string `regex:"role,required,default=guest"`
+		}
+		d := rx.MustCompile[D](`(?P<name>\w+)`) // no "role" group; default fires
+		v, err := d.One("Alice")
+		if err != nil {
+			t.Fatalf("One() error = %v, want nil (default satisfies required)", err)
+		}
+		if v.Role != "guest" {
+			t.Errorf("Role = %q, want %q", v.Role, "guest")
+		}
+	})
+
+	t.Run("strict Compile rejects required on undeclared group with no default", func(t *testing.T) {
+		type Bad struct {
+			Role string `regex:"role,required"`
+		}
+		_, err := rx.Compile[Bad](`(?P<name>\w+)`) // no "role" group, no default
+		if err == nil {
+			t.Fatal("Compile() error = nil, want an undeclared-group error")
+		}
+		if !strings.Contains(err.Error(), "not declared on the pattern") {
+			t.Errorf("Compile() error = %q, want it to mention the undeclared group", err.Error())
+		}
 	})
 }
 

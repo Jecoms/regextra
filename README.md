@@ -259,11 +259,13 @@ The `regex:"..."` tag accepts comma-separated `key=value` options after the grou
 |---|---|---|
 | `default=<value>` | Any field type | Substituted when the named group is not declared on the regex or its match is empty. The default goes through the same type conversion as a real match. |
 | `layout=<go-time-layout>` | `time.Time` only | Use the supplied [time.Parse layout](https://pkg.go.dev/time#Parse) exclusively, instead of the default fallback list. Lets you pin the parser to (e.g.) Apache, syslog, or any other non-RFC3339 timestamp shape. |
+| `required` *(flag)* | Any field type | Decode fails with an `errors.As`-able `*RequiredGroupError` when the named group does not participate in the match or matches an empty span and no `default=` supplies a value. A `default=` satisfies the requirement. Lets a field declare its mandatory-ness inline instead of a separate `Validate` pass. |
 
 ```go
 type LogLine struct {
     TS    time.Time `regex:"ts,layout=02/Jan/2006:15:04:05 -0700"`
     Level string    `regex:"level,default=info"`
+    User  string    `regex:"user,required"`
 }
 ```
 
@@ -272,7 +274,7 @@ type LogLine struct {
 **Forward-compat rules (v1 contract):**
 
 - **Unknown `key=value` pairs are preserved, not rejected.** Adding a new option key in a future minor release is not a breaking change. Don't rely on the parser rejecting unknown keys — pin a minor version range if you need a specific recognized set.
-- **Lone tokens (no `=`) are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (e.g. `required` — see [#148](https://github.com/Jecoms/regextra/issues/148)); a later minor may start recognizing specific lone tokens. Don't rely on lone tokens remaining inert.
+- **Lone tokens (no `=`) other than the recognized `required` flag are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (`required` claimed the first one — see the options table above); a later minor may start recognizing further lone tokens. Don't rely on an unrecognized lone token remaining inert.
 
 See the package doc's **Tag grammar** section on [pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra) for the canonical statement.
 
@@ -384,6 +386,15 @@ This is the strictness you want for "compile once" — typos fail at startup, no
 var de *regextra.DecodeError
 if errors.As(err, &de) {
     log.Printf("field %s (group %s): cannot parse %q as %s", de.Field, de.Group, de.Value, de.Type)
+}
+```
+
+**Required groups.** A field tagged `regex:",required"` (see the Tag options table under [`Unmarshal`](#unmarshalre-regexpregexp-target-string-v-any-error)) must receive a value: when its group does not participate in the match or matches an empty span and no `default=` supplies one, the same decode entrypoints return a `*regextra.RequiredGroupError` carrying the field name and capture group. It is the per-match presence check, complementing `*DecodeError` (a value that failed conversion) and `*MissingNamedGroupsError` (the static `Validate` check that the pattern declares a group at all):
+
+```go
+var rge *regextra.RequiredGroupError
+if errors.As(err, &rge) {
+    log.Printf("field %s (group %s) is required but had no value", rge.Field, rge.Group)
 }
 ```
 

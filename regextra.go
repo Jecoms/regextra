@@ -138,6 +138,14 @@ option. Currently recognized keys:
 	layout=<go-time-layout>   time.Time only. Used exclusively, instead of
 	                          the default RFC3339-and-friends fallback list.
 
+The grammar also recognizes one flag-style token (no `=`):
+
+	required                  Decode fails with a *RequiredGroupError when
+	                          the named group does not participate in the
+	                          match or matches an empty span and no default=
+	                          supplies a value. A default= satisfies the
+	                          requirement, since it always yields a value.
+
 The two "empty" forms differ, matching the convention in encoding/json,
 encoding/xml, and gopkg.in/yaml:
 
@@ -159,15 +167,15 @@ Two forward-compatibility rules in the tag parser are part of the v1 contract:
     unknown keys; pin a minor version range if you need a specific
     recognized set.
 
-  - Lone tokens (no `=`) are silently ignored. Today, `regex:"name,foo"`
-    is a no-op — the `foo` token is dropped, so the field resolves exactly as
-    `regex:"name"` would. This
-    slot is reserved for future flag-style options (e.g. `required`; see
-    the issue tracker at https://github.com/Jecoms/regextra/issues). A
-    later minor release may start recognizing specific lone
-    tokens and giving them meaning, so adding `regex:"name,foo"` today is a
-    no-op but may stop being one. Callers must not rely on lone tokens
-    remaining inert.
+  - Lone tokens (no `=`) other than the recognized `required` flag are
+    silently ignored. Today, `regex:"name,foo"` is a no-op — the `foo` token is
+    dropped, so the field resolves exactly as `regex:"name"` would. This slot is
+    reserved for future flag-style options (the `required` flag above claimed the
+    first one; see the issue tracker at
+    https://github.com/Jecoms/regextra/issues). A later minor release may start
+    recognizing further lone tokens and giving them meaning, so adding
+    `regex:"name,foo"` today is a no-op but may stop being one. Callers must not
+    rely on an unrecognized lone token remaining inert.
 
 The two rules together are how the tag grammar grows compatibly: a new
 option ships as either an additional key=value pair (orthogonal to today's
