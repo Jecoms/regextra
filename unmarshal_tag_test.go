@@ -85,9 +85,26 @@ func TestParseFieldTag(t *testing.T) {
 			wantSkip: false,
 		},
 		{
+			// A lone token and a recognized key=value in the same tag: the
+			// lone token is dropped, the key=value survives.
+			name:     "lone token dropped while a key=value is kept",
+			tag:      "name,a,b=2",
+			wantName: "name",
+			wantOpts: map[string]string{"b": "2"},
+			wantSkip: false,
+		},
+		{
 			// Empty pieces between commas are skipped without affecting opts.
 			name:     "empty piece is skipped",
 			tag:      "name,,default=x",
+			wantName: "name",
+			wantOpts: map[string]string{"default": "x"},
+			wantSkip: false,
+		},
+		{
+			// Whitespace inside a key=value is trimmed on both sides of '='.
+			name:     "whitespace around key and value is trimmed",
+			tag:      " name , default = x ",
 			wantName: "name",
 			wantOpts: map[string]string{"default": "x"},
 			wantSkip: false,
