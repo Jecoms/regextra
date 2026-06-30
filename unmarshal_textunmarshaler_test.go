@@ -2,6 +2,7 @@ package regextra_test
 
 import (
 	"encoding"
+	"fmt"
 	"math/big"
 	"net/netip"
 	"regexp"
@@ -18,6 +19,20 @@ import (
 // Fixtures are stdlib-only (no new module dependency): netip.Addr, math/big.Int
 // (pointer receiver), and log/slog.Level (underlying int, must NOT be routed
 // through the built-in int conversion).
+
+// ExampleUnmarshal_textUnmarshaler shows that any field type implementing
+// encoding.TextUnmarshaler (here the stdlib's netip.Addr) is populated from its
+// capture group via UnmarshalText, with no regextra-specific code required.
+func ExampleUnmarshal_textUnmarshaler() {
+	type Conn struct {
+		Addr netip.Addr `regex:"addr"`
+	}
+	re := regexp.MustCompile(`from (?P<addr>\S+)`)
+	var c Conn
+	_ = rx.Unmarshal(re, "from 192.168.0.1", &c)
+	fmt.Println(c.Addr)
+	// Output: 192.168.0.1
+}
 
 func TestUnmarshal_TextUnmarshaler_Value(t *testing.T) {
 	type rec struct {
