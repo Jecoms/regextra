@@ -1071,13 +1071,13 @@ func containsByte(s string, b byte) bool {
 // only possible via the *field* name side of the comparison.
 
 func TestCaseInsensitiveFallback_parity(t *testing.T) {
-	// The field name "KELVIN" below starts with U+212A (KELVIN SIGN), an
+	// The field name "KELVIN" below starts with U+212A (KELVIN SIGN), an
 	// uppercase Unicode letter that folds to ASCII 'k' under Unicode case
 	// folding but is untouched by ASCII-only lowering. Before the fix,
 	// Unmarshal matched it to the "kelvin" group and the Decoder did not.
 	const pattern = `(?P<kelvin>\d+)`
 	type reading struct {
-		KELVIN int
+		KELVIN int
 	}
 
 	re := regexp.MustCompile(pattern)
@@ -1095,11 +1095,11 @@ func TestCaseInsensitiveFallback_parity(t *testing.T) {
 		t.Fatalf("Decoder.One: %v", err)
 	}
 
-	if fromUnmarshal.KELVIN != 273 {
-		t.Errorf("Unmarshal: KELVIN = %d, want 273", fromUnmarshal.KELVIN)
+	if fromUnmarshal.KELVIN != 273 {
+		t.Errorf("Unmarshal: KELVIN = %d, want 273", fromUnmarshal.KELVIN)
 	}
-	if fromDecoder.KELVIN != 273 {
-		t.Errorf("Decoder.One: KELVIN = %d, want 273", fromDecoder.KELVIN)
+	if fromDecoder.KELVIN != 273 {
+		t.Errorf("Decoder.One: KELVIN = %d, want 273", fromDecoder.KELVIN)
 	}
 }
 
