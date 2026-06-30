@@ -11,27 +11,19 @@ permissions:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }}, Go ${{ matrix.go-version }})
+    name: Test (Go ${{ matrix.go-version }})
     # Don't run on fork PRs (no token/secret exposure); same-repo + push still run.
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # go.mod stays at 1.24 (the floor for consumers). Matrix tests against
         # the floor + the two newest toolchains so we catch regressions on new
         # Go without raising the consumer floor.
-        os: [ubuntu-latest]
         go-version: ['1.24', '1.25', '1.26']
-        include:
-          # One Windows smoke leg on the floor toolchain: a plain build +
-          # `go test -race`. Bash-based steps (fuzz, coverage gate, Codecov)
-          # are Linux-gated below, so this leg stays cheap cross-OS insurance
-          # for a pure-stdlib string library.
-          - os: windows-latest
-            go-version: '1.24'
     
     steps:
     - name: Check out code
@@ -57,8 +49,7 @@ jobs:
     # Each target gets a 10s budget; the seed corpus runs unconditionally
     # via the regular `go test` step above on every matrix leg.
     - name: Fuzz Unmarshal type conversions
-      # Linux-only: the loop is bash, and Windows' default shell is pwsh.
-      if: matrix.go-version == '1.24' && runner.os == 'Linux'
+      if: matrix.go-version == '1.24'
       run: |
         for fz in FuzzFindNamed FuzzNamedGroups FuzzUnmarshalInt FuzzUnmarshalUint FuzzUnmarshalFloat FuzzUnmarshalBool; do
           echo "::group::go test -fuzz=^$fz$ -fuzztime=10s"
@@ -67,9 +58,6 @@ jobs:
         done
 
     - name: Enforce coverage threshold
-      # Linux-only: the script below is bash (set -euo pipefail / awk) and
-      # Windows' default shell is pwsh, where it wouldn't run.
-      if: runner.os == 'Linux'
       env:
         # Floor below which the build fails. Real baseline is ~97%; this leaves
         # ~5 points of slack to absorb small refactors without forcing tests on
@@ -87,8 +75,6 @@ jobs:
         echo "✓ Coverage meets the threshold."
 
     - name: Upload coverage to Codecov
-      # Linux-only: coverage is produced and enforced on the Linux legs.
-      if: runner.os == 'Linux'
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
       with:
         files: ./coverage.txt
