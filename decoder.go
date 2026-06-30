@@ -112,7 +112,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 }
 
 // buildDecodePlan maps each exported field of rt to its regex capture group and
-// parsed tag options, returning the per-field decode plan that [runDecodePlan]
+// parsed tag options, returning the per-field decode plan that runDecodePlan
 // executes against a match. It is the single plan-construction path shared by
 // the [Decoder] (compiled once via compileDecoder) and the [Unmarshal] /
 // [UnmarshalAll] free functions (built fresh per call) — one set of
@@ -318,13 +318,13 @@ func (d *Decoder[T]) Pattern() string {
 
 // decode walks the precomputed field plan against a single match and writes the
 // values into rv (the addressable reflect.Value of a T). It is a thin wrapper
-// over the shared [runDecodePlan] core, which the [Unmarshal] / [UnmarshalAll]
+// over the shared runDecodePlan core, which the [Unmarshal] / [UnmarshalAll]
 // free functions drive too.
 func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) error {
 	return runDecodePlan(d.fields, rv, target, matches)
 }
 
-// runDecodePlan executes a decode plan (from [buildDecodePlan]) against a single
+// runDecodePlan executes a decode plan (from buildDecodePlan) against a single
 // match's group indices, writing the decoded values into rv — the addressable
 // reflect.Value of a struct. matches is a FindStringSubmatchIndex-style index
 // slice (or one element of FindAllStringSubmatchIndex); target is the string
