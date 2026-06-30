@@ -108,9 +108,9 @@ func (e *DecodeError) Unwrap() error { return e.Err }
 // [Decoder.All], and [Decoder.Iter]. Recover it with [errors.As] to branch on
 // the missing field without parsing message text:
 //
-//	var re *regextra.RequiredGroupError
-//	if errors.As(err, &re) {
-//	    log.Printf("field %s (group %s) is required but had no value", re.Field, re.Group)
+//	var rge *regextra.RequiredGroupError
+//	if errors.As(err, &rge) {
+//	    log.Printf("field %s (group %s) is required but had no value", rge.Field, rge.Group)
 //	}
 //
 // It complements [DecodeError] (a participating value that failed type
@@ -137,7 +137,7 @@ func (e *RequiredGroupError) Error() string {
 	if e.Field == "" {
 		return "no required group error"
 	}
-	return fmt.Sprintf("field %s: required group %q did not match", e.Field, e.Group)
+	return fmt.Sprintf("field %s: required group %q produced no value", e.Field, e.Group)
 }
 
 // Unmarshal extracts named capture groups from the target string and assigns them
