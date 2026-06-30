@@ -331,7 +331,6 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 	if len(parts) == 1 {
 		return name, nil, false, false
 	}
-	opts = make(map[string]string, len(parts)-1)
 	for _, p := range parts[1:] {
 		p = strings.TrimSpace(p)
 		k, v, ok := strings.Cut(p, "=")
@@ -346,6 +345,14 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 				required = true
 			}
 			continue
+		}
+		// Allocate the options map lazily — only a key=value pair populates it.
+		// A field with just a lone flag (e.g. `name,required`) keeps opts nil,
+		// matching the no-options case (parts==1) and avoiding a per-call,
+		// per-field empty-map allocation on the Unmarshal hot path. Consumers
+		// already treat nil opts as "no options" (nil-map reads are zero-value).
+		if opts == nil {
+			opts = make(map[string]string, len(parts)-1)
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
