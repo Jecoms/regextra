@@ -159,7 +159,7 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := runDecodePlan(fields, elem, target, matches); err != nil {
+	if err := runDecodePlan(re, fields, elem, target, matches); err != nil {
 		return fmt.Errorf("regextra.Unmarshal: %w", err)
 	}
 	return nil
@@ -223,7 +223,7 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	}
 	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
 	for idx, matches := range allMatches {
-		if err := runDecodePlan(fields, newSlice.Index(idx), target, matches); err != nil {
+		if err := runDecodePlan(re, fields, newSlice.Index(idx), target, matches); err != nil {
 			return fmt.Errorf("regextra.UnmarshalAll: match %d: %w", idx, err)
 		}
 	}
