@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -481,5 +482,198 @@ func TestDecoder_Iter_continuesPastErrors(t *testing.T) {
 	want := []E{{Age: 10}, {Age: 20}}
 	if !reflect.DeepEqual(oks, want) {
 		t.Errorf("got %+v, want %+v", oks, want)
+	}
+}
+
+func TestDecoder_duplicateNames(t *testing.T) {
+	type rec struct {
+		Word string `regex:"word"`
+	}
+	dec := rx.MustCompile[rec](`(?:x(?P<word>a)|y(?P<word>b))`)
+
+	t.Run("One finds the participating occurrence in either branch", func(t *testing.T) {
+		for input, want := range map[string]string{"xa": "a", "yb": "b"} {
+			got, err := dec.One(input)
+			if err != nil {
+				t.Fatalf("One(%q): %v", input, err)
+			}
+			if got.Word != want {
+				t.Errorf("One(%q): Word = %q, want %q", input, got.Word, want)
+			}
+		}
+	})
+
+	t.Run("All decodes mixed branches", func(t *testing.T) {
+		got, err := dec.All("xa yb")
+		if err != nil {
+			t.Fatalf("All: %v", err)
+		}
+		if len(got) != 2 || got[0].Word != "a" || got[1].Word != "b" {
+			t.Errorf("got %+v, want [{a} {b}]", got)
+		}
+	})
+
+	t.Run("sequential duplicates agree with Unmarshal (last wins)", func(t *testing.T) {
+		const pattern = `(?P<word>\w+) (?P<word>\w+)`
+		seqDec := rx.MustCompile[rec](pattern)
+		fromDecoder, err := seqDec.One("hello world")
+		if err != nil {
+			t.Fatalf("One: %v", err)
+		}
+		var fromUnmarshal rec
+		if err := rx.Unmarshal(regexp.MustCompile(pattern), "hello world", &fromUnmarshal); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if fromDecoder.Word != fromUnmarshal.Word {
+			t.Errorf("paths disagree: Decoder=%q Unmarshal=%q", fromDecoder.Word, fromUnmarshal.Word)
+		}
+		if fromDecoder.Word != "world" {
+			t.Errorf("Word = %q, want %q", fromDecoder.Word, "world")
+		}
+	})
+}
+
+// Issue-105 follow-up: when a duplicate group name's last occurrence
+// participates with an *empty* span, the Decoder and the Unmarshal/NamedGroups
+// paths must agree (the Decoder previously read the first occurrence's value).
+func TestDecoderUnmarshal_participatingEmptyDuplicate(t *testing.T) {
+	const pattern = `(?P<word>a)(?P<word>b*)`
+	re := regexp.MustCompile(pattern)
+	type rec struct {
+		Word string `regex:"word"`
+	}
+
+	dec := rx.MustCompile[rec](pattern)
+	fromDecoder, err := dec.One("a")
+	if err != nil {
+		t.Fatalf("One: %v", err)
+	}
+	fromMap := rx.NamedGroups(re, "a")["word"]
+	var fromUnmarshal rec
+	if err := rx.Unmarshal(re, "a", &fromUnmarshal); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if fromDecoder.Word != fromMap || fromDecoder.Word != fromUnmarshal.Word {
+		t.Errorf("paths disagree: Decoder=%q NamedGroups=%q Unmarshal=%q (want all equal)",
+			fromDecoder.Word, fromMap, fromUnmarshal.Word)
+	}
+	if fromDecoder.Word != "" {
+		t.Errorf("Word = %q, want \"\" (the empty b* span is the last participating occurrence)", fromDecoder.Word)
+	}
+}
+
+// The Decoder shares setFieldValue, so overflow must error there too — both
+// at decode time and when validating a default= at Compile time.
+func TestDecoder_overflow(t *testing.T) {
+	t.Run("One errors on overflow", func(t *testing.T) {
+		type rec struct {
+			N int8 `regex:"n"`
+		}
+		dec := rx.MustCompile[rec](`(?P<n>\d+)`)
+		if _, err := dec.One("300"); err == nil {
+			t.Fatal("expected overflow error, got nil")
+		}
+	})
+
+	t.Run("Compile rejects out-of-range default", func(t *testing.T) {
+		type rec struct {
+			N int8 `regex:"n,default=300"`
+		}
+		if _, err := rx.Compile[rec](`(?P<n>\d+)`); err == nil {
+			t.Fatal("expected Compile error for out-of-range default, got nil")
+		}
+	})
+}
+
+func TestDecoder_dashExcludesField(t *testing.T) {
+	type Person struct {
+		Name string `regex:"name"`
+		Age  string `regex:"-"`
+	}
+	d, err := rx.Compile[Person](`(?P<name>\w+) is (?P<age>\d+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	t.Run("One", func(t *testing.T) {
+		p, err := d.One("Alice is 30")
+		if err != nil {
+			t.Fatalf("One() error = %v", err)
+		}
+		if p.Name != "Alice" {
+			t.Errorf("Name = %q, want %q", p.Name, "Alice")
+		}
+		if p.Age != "" {
+			t.Errorf("Age = %q, want it left at zero value (excluded by regex:\"-\")", p.Age)
+		}
+	})
+
+	t.Run("All", func(t *testing.T) {
+		ps, err := d.All("Alice is 30 Bob is 25")
+		if err != nil {
+			t.Fatalf("All() error = %v", err)
+		}
+		if len(ps) != 2 {
+			t.Fatalf("got %d people, want 2", len(ps))
+		}
+		for i, p := range ps {
+			if p.Age != "" {
+				t.Errorf("ps[%d].Age = %q, want it left at zero value", i, p.Age)
+			}
+		}
+	})
+
+	t.Run("Iter", func(t *testing.T) {
+		var n int
+		for p, err := range d.Iter("Alice is 30 Bob is 25") {
+			if err != nil {
+				t.Fatalf("Iter() error = %v", err)
+			}
+			if p.Age != "" {
+				t.Errorf("people[%d].Age = %q, want it left at zero value", n, p.Age)
+			}
+			n++
+		}
+		if n != 2 {
+			t.Fatalf("got %d people, want 2", n)
+		}
+	})
+}
+
+// A field tagged regex:"-" must not trigger Compile's undeclared-group error
+// even when no group of that name exists — it is excluded before resolution.
+func TestCompile_dashFieldNeedsNoGroup(t *testing.T) {
+	type Person struct {
+		Name     string `regex:"name"`
+		Internal string `regex:"-"` // no "internal"/"Internal" group on the pattern
+	}
+	if _, err := rx.Compile[Person](`(?P<name>\w+)`); err != nil {
+		t.Fatalf("Compile() error = %v, want nil (regex:\"-\" field should be excluded)", err)
+	}
+}
+
+// parseFieldTag feeds the Decoder/Compile path too, so the same forward-compat
+// no-ops must hold there. Parsing happens once at compile time and One/All/Iter
+// share that result, so a single One probe is sufficient parity coverage.
+func TestDecoder_tagForwardCompatRules(t *testing.T) {
+	type Person struct {
+		Name string `regex:"name,future=42"`              // unknown key: accepted, not rejected
+		Role string `regex:"role,required,default=guest"` // lone token: ignored; default applies
+	}
+	d, err := rx.Compile[Person](`(?P<name>\w+)`) // no "role" group; default fires
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want nil (forward-compat options must not break compilation)", err)
+	}
+
+	p, err := d.One("Alice")
+	if err != nil {
+		t.Fatalf("One() error = %v", err)
+	}
+	if p.Name != "Alice" {
+		t.Errorf("Name = %q, want %q", p.Name, "Alice")
+	}
+	if p.Role != "guest" {
+		t.Errorf("Role = %q, want %q (lone token ignored; default applies on the Decoder path)", p.Role, "guest")
 	}
 }
