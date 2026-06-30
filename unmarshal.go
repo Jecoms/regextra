@@ -157,7 +157,7 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 	// strict=false; the check is kept for forward-safety.
 	fields, err := buildDecodePlan(elem.Type(), re, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("regextra.Unmarshal: %w", err)
 	}
 	if err := runDecodePlan(re, fields, elem, target, matches); err != nil {
 		return fmt.Errorf("regextra.Unmarshal: %w", err)
@@ -219,7 +219,7 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 	// lenient Unmarshal posture (see Unmarshal); the error is never non-nil here.
 	fields, err := buildDecodePlan(sliceElemType, re, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("regextra.UnmarshalAll: %w", err)
 	}
 	newSlice := reflect.MakeSlice(elem.Type(), len(allMatches), len(allMatches))
 	for idx, matches := range allMatches {
