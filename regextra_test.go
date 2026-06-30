@@ -527,6 +527,33 @@ func TestReplaceFuncNoMatchNeverCallsFn(t *testing.T) {
 	}
 }
 
+func TestReplaceFuncNilFn(t *testing.T) {
+	// A nil fn is a programmer error. It panics on the first substituted match,
+	// mirroring regexp.Regexp.ReplaceAllStringFunc, but never panics when there
+	// is nothing to substitute (no match returns target before fn is reached).
+	t.Run("panics on first match", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Error("ReplaceFunc with nil fn did not panic on a match")
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		rx.ReplaceFunc(re, "HELLO", nil)
+	})
+
+	t.Run("no panic on no match", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("ReplaceFunc with nil fn panicked on no match: %v", r)
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		if out := rx.ReplaceFunc(re, "no matches here", nil); out != "no matches here" {
+			t.Errorf("ReplaceFunc = %q, want target unchanged", out)
+		}
+	})
+}
+
 func ExampleReplaceFunc() {
 	// Mask all but the last four digits of a captured card number.
 	re := regexp.MustCompile(`(?P<card>\d{12,19})`)
