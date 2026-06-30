@@ -204,9 +204,23 @@ go test -bench=. -benchmem
 ### PR Guidelines
 - **One feature per PR**: Keep changes focused
 - **Write clear descriptions**: Explain what and why
-- **Reference issues**: Link related issues or discussions
+- **Reference issues**: Link related issues or discussions. If the PR resolves
+  an issue, use a [closing keyword](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue)
+  (`Closes #NN` / `Fixes #NN`) in the description so it auto-closes on merge
 - **Update tests**: Include test coverage for changes
 - **Breaking changes**: Clearly document in PR
+
+### Commit Signing
+
+**Every commit in a PR must be verified (cryptographically signed).** GitHub
+must show each commit as **Verified**; a PR with any unsigned/unverified commit
+will not be merged. Configure signing once (SSH or GPG) and it applies to all
+your commits:
+
+- See [GitHub's guide on signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+- Add your signing key to your GitHub account so the signature verifies.
+- If a commit landed unsigned, re-sign it (amend/rebase with your signing key,
+  or your VCS's equivalent) and force-push the branch before requesting merge.
 
 ### Commit Message Format
 
