@@ -101,6 +101,45 @@ func (e *DecodeError) Error() string {
 // can reach it.
 func (e *DecodeError) Unwrap() error { return e.Err }
 
+// RequiredGroupError reports that a field marked `regex:",required"` produced no
+// value for a match: its capture group did not participate, or matched an empty
+// span, and no `default=` supplied a substitute. It is returned (wrapped with the
+// calling entrypoint's prefix) by [Unmarshal], [UnmarshalAll], [Decoder.One],
+// [Decoder.All], and [Decoder.Iter]. Recover it with [errors.As] to branch on
+// the missing field without parsing message text:
+//
+//	var re *regextra.RequiredGroupError
+//	if errors.As(err, &re) {
+//	    log.Printf("field %s (group %s) is required but had no value", re.Field, re.Group)
+//	}
+//
+// It complements [DecodeError] (a participating value that failed type
+// conversion) and [MissingNamedGroupsError] (a static [Validate] check that the
+// pattern declares a group at all): RequiredGroupError is the per-match
+// presence check. Like MissingNamedGroupsError, there is no underlying cause to
+// unwrap — the absent value is the payload.
+type RequiredGroupError struct {
+	// Field is the destination struct field name.
+	Field string
+	// Group is the capture group the required value was expected from: the
+	// field's `regex:"..."` tag name when set, otherwise the declared group
+	// whose name matches the field name. It is empty only when a `required`
+	// field maps to no declared group at all.
+	Group string
+}
+
+// Error implements the error interface. The calling entrypoint prepends its own
+// `regextra.<Entrypoint>:` prefix when wrapping. When Field is empty (only
+// reachable by constructing the value directly — the decode path always sets the
+// field name) it reports "no required group error" rather than a message about a
+// nameless field.
+func (e *RequiredGroupError) Error() string {
+	if e.Field == "" {
+		return "no required group error"
+	}
+	return fmt.Sprintf("field %s: required group %q did not match", e.Field, e.Group)
+}
+
 // Unmarshal extracts named capture groups from the target string and assigns them
 // to the corresponding fields in the provided struct pointer.
 //
@@ -254,14 +293,21 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 //   - layout  — for time.Time fields only: a single time.Parse layout used
 //     instead of the default fallback list.
 //
+// The `required` flag (a lone token, no `=`) marks the field's group as
+// mandatory: decode fails with a *[RequiredGroupError] when the group does not
+// participate in a match or matches an empty span and no `default=` supplies a
+// value. It is the first recognized lone-token flag (the slot the forward-compat
+// rules below reserved).
+//
 // Forward-compat rules (locked in as v1 contract — see the package doc's
 // "Tag grammar" section for the full statement and rationale):
 //   - Unknown key=value pairs are preserved in the returned map so future
 //     option additions don't need to touch the parser; adding a new option
 //     key is therefore not a breaking change.
-//   - Lone tokens without `=` are silently ignored today; the slot is
-//     reserved for future flag-style options (e.g. `required`), so callers
-//     must not rely on lone tokens remaining inert.
+//   - Lone tokens without `=` other than the recognized `required` flag are
+//     silently ignored today; the slot remains reserved for future flag-style
+//     options, so callers must not rely on an unrecognized lone token staying
+//     inert.
 //
 // The two forms differ:
 //   - `regex:""` (no tag) signals "no name", returning ("", nil, false); the
@@ -272,35 +318,38 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 //     gopkg.in/yaml. Only the bare `-` tag excludes; a leading `-` followed by
 //     options (e.g. `regex:"-,default=x"`) parses `-` as the group name, which
 //     matches no group since group names are Go identifiers.
-func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, skip bool) {
+func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, required, skip bool) {
 	tag := field.Tag.Get("regex")
 	if tag == "-" {
-		return "", nil, true
+		return "", nil, false, true
 	}
 	if tag == "" {
-		return "", nil, false
+		return "", nil, false, false
 	}
 	parts := strings.Split(tag, ",")
 	name = strings.TrimSpace(parts[0])
 	if len(parts) == 1 {
-		return name, nil, false
+		return name, nil, false, false
 	}
 	opts = make(map[string]string, len(parts)-1)
 	for _, p := range parts[1:] {
 		p = strings.TrimSpace(p)
 		k, v, ok := strings.Cut(p, "=")
 		if !ok {
-			// No '=': either a lone token (reserved for future flag-style
-			// options, e.g. `required`) or an empty piece (a doubled, leading,
-			// or trailing comma). Both are silently ignored rather than rejected
-			// to keep the parser forward-compatible. An empty piece needs no
-			// separate guard: strings.Cut("", "=") returns ok=false, so it lands
-			// here too.
+			// No '=': a lone token. `required` is the one recognized flag; it
+			// marks the field's group mandatory (enforced in runDecodePlan).
+			// Any other lone token — including an empty piece from a doubled,
+			// leading, or trailing comma — is silently ignored to keep the
+			// parser forward-compatible. An empty piece needs no separate guard:
+			// strings.Cut("", "=") returns ok=false, so it lands here too.
+			if k == "required" {
+				required = true
+			}
 			continue
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
-	return name, opts, false
+	return name, opts, required, false
 }
 
 // resolveGroupValue decides what a field receives given its group's raw match

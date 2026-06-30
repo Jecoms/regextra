@@ -57,6 +57,11 @@ type fieldDecoder struct {
 	// opts is the parsed tag options map (e.g. {"default": "guest", "layout": "..."}).
 	// Nil if the field has no options.
 	opts map[string]string
+	// required is set when the field's tag carries the `required` flag. A
+	// required field that yields no value (group absent, non-participating, or
+	// an empty span with no default) fails decode with a *RequiredGroupError
+	// instead of being skipped.
+	required bool
 }
 
 // Compile parses pattern and validates T's struct tags against it.
@@ -138,7 +143,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 			continue
 		}
 
-		groupName, opts, skip := parseFieldTag(sf)
+		groupName, opts, required, skip := parseFieldTag(sf)
 		if skip {
 			// `regex:"-"` excludes the field entirely — it never enters the
 			// decode plan and no name fallback is attempted.
@@ -189,8 +194,10 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 		}
 
 		// Skip fields that have neither a group mapping nor a default —
-		// they'd be no-ops at decode time.
-		if len(groupIdxs) == 0 && !hasDefault {
+		// they'd be no-ops at decode time. A `required` field is retained even
+		// with no mapping/default so runDecodePlan can raise a
+		// *RequiredGroupError when it yields no value.
+		if len(groupIdxs) == 0 && !hasDefault && !required {
 			continue
 		}
 
@@ -198,6 +205,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 			fieldIndex:   i,
 			groupIndexes: groupIdxs,
 			opts:         opts,
+			required:     required,
 		})
 	}
 
@@ -249,7 +257,7 @@ func resolveGroupName(re *regexp.Regexp, sf reflect.StructField, groupIndexes []
 	if len(groupIndexes) > 0 {
 		return re.SubexpNames()[groupIndexes[0]]
 	}
-	name, _, _ := parseFieldTag(sf)
+	name, _, _, _ := parseFieldTag(sf)
 	return name
 }
 
@@ -386,6 +394,19 @@ func runDecodePlan(re *regexp.Regexp, fields []fieldDecoder, rv reflect.Value, t
 		// type converter.
 		value, ok := resolveGroupValue(value, found, fd.opts)
 		if !ok {
+			// No usable value. A `required` field fails here (the group did not
+			// participate, matched an empty span, or is undeclared, and no
+			// default= supplied a substitute); every other field is skipped and
+			// left unchanged. Keying on resolveGroupValue's `ok` — not `found` —
+			// means a participating-but-empty span also fails required,
+			// consistent with the shared "empty span = data absence" contract.
+			if fd.required {
+				sf := rv.Type().Field(fd.fieldIndex)
+				return &RequiredGroupError{
+					Field: sf.Name,
+					Group: resolveGroupName(re, sf, fd.groupIndexes),
+				}
+			}
 			continue
 		}
 		field := rv.Field(fd.fieldIndex)

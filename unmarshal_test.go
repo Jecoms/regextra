@@ -1668,12 +1668,13 @@ func TestUnmarshal_unknownOptionKeyIsAccepted(t *testing.T) {
 }
 
 func TestUnmarshal_loneTokenIsIgnored(t *testing.T) {
-	// Forward-compat rule 2: a lone token (no '=') is silently ignored today,
-	// reserving the slot for future flag-style options. `required` has no
-	// meaning yet, so it neither errors nor blocks the `default` that follows
-	// it — the "role" group is absent, so the field takes the default.
+	// Forward-compat rule 2: an unrecognized lone token (no '=') is silently
+	// ignored today, reserving the slot for future flag-style options. `foo` has
+	// no meaning, so it neither errors nor blocks the `default` that follows it —
+	// the "role" group is absent, so the field takes the default. (`required` is
+	// now a recognized flag, so this uses a still-reserved token instead.)
 	type Person struct {
-		Role string `regex:"role,required,default=guest"`
+		Role string `regex:"role,foo,default=guest"`
 	}
 	re := regexp.MustCompile(`(?P<name>\w+)`) // no "role" group
 
@@ -1732,6 +1733,110 @@ func TestUnmarshal_emptyOptionPieceIsSkipped(t *testing.T) {
 		if p.Role != "guest" {
 			t.Errorf("Role = %q, want %q (whitespace-only piece skipped)", p.Role, "guest")
 		}
+	})
+}
+
+// TestUnmarshalRequired covers the `regex:",required"` flag (#148) on the
+// Unmarshal / UnmarshalAll paths: a required field whose group yields no value
+// fails with an errors.As-able *RequiredGroupError carrying Field/Group, wrapped
+// under the entrypoint prefix; a participating value or a default= satisfies it.
+func TestUnmarshalRequired(t *testing.T) {
+	assertRequiredErr := func(t *testing.T, err error, wantPrefix, wantField, wantGroup string) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("got nil error, want a *RequiredGroupError")
+		}
+		var rge *rx.RequiredGroupError
+		if !errors.As(err, &rge) {
+			t.Fatalf("error %q is not a *RequiredGroupError", err)
+		}
+		if rge.Field != wantField || rge.Group != wantGroup {
+			t.Errorf("RequiredGroupError{Field:%q, Group:%q}, want {%q, %q}", rge.Field, rge.Group, wantField, wantGroup)
+		}
+		if !strings.HasPrefix(err.Error(), wantPrefix) {
+			t.Errorf("error = %q, want prefix %q", err.Error(), wantPrefix)
+		}
+	}
+
+	t.Run("non-participating optional group fails", func(t *testing.T) {
+		type T struct {
+			Num int `regex:"num,required"`
+		}
+		re := regexp.MustCompile(`x(?P<num>\d+)?`) // optional group, declared
+		var v T
+		err := rx.Unmarshal(re, "x", &v) // matches, but num does not participate
+		assertRequiredErr(t, err, "regextra.Unmarshal:", "Num", "num")
+	})
+
+	t.Run("participating empty span fails", func(t *testing.T) {
+		type T struct {
+			Age string `regex:"age,required"`
+		}
+		re := regexp.MustCompile(`(?P<name>\w+):(?P<age>\d*)`) // age may match an empty span
+		var v T
+		err := rx.Unmarshal(re, "Alice:", &v) // age participates but is empty
+		assertRequiredErr(t, err, "regextra.Unmarshal:", "Age", "age")
+	})
+
+	t.Run("undeclared group with no default fails on lenient path", func(t *testing.T) {
+		type T struct {
+			Role string `regex:"role,required"`
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`) // no "role" group declared
+		var v T
+		err := rx.Unmarshal(re, "Alice", &v)
+		assertRequiredErr(t, err, "regextra.Unmarshal:", "Role", "role")
+	})
+
+	t.Run("participating value satisfies", func(t *testing.T) {
+		type T struct {
+			Name string `regex:"name,required"`
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var v T
+		if err := rx.Unmarshal(re, "Alice", &v); err != nil {
+			t.Fatalf("Unmarshal() error = %v, want nil (required group participated)", err)
+		}
+		if v.Name != "Alice" {
+			t.Errorf("Name = %q, want %q", v.Name, "Alice")
+		}
+	})
+
+	t.Run("default satisfies required", func(t *testing.T) {
+		type T struct {
+			Role string `regex:"role,required,default=guest"`
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`) // no "role" group; default fires
+		var v T
+		if err := rx.Unmarshal(re, "Alice", &v); err != nil {
+			t.Fatalf("Unmarshal() error = %v, want nil (default satisfies required)", err)
+		}
+		if v.Role != "guest" {
+			t.Errorf("Role = %q, want %q (default applies despite required)", v.Role, "guest")
+		}
+	})
+
+	t.Run("no match is not a required failure", func(t *testing.T) {
+		// No match is data absence, not a decode failure: Unmarshal returns nil
+		// and never runs the plan, so required does not fire.
+		type T struct {
+			Name string `regex:"name,required"`
+		}
+		re := regexp.MustCompile(`(?P<name>\w+)`)
+		var v T
+		if err := rx.Unmarshal(re, "!!!", &v); err != nil {
+			t.Fatalf("Unmarshal() error = %v, want nil (no match is not a required failure)", err)
+		}
+	})
+
+	t.Run("UnmarshalAll surfaces *RequiredGroupError with match prefix", func(t *testing.T) {
+		type T struct {
+			Num int `regex:"num,required"`
+		}
+		re := regexp.MustCompile(`x(?P<num>\d+)?`)
+		var vs []T
+		err := rx.UnmarshalAll(re, "x42 x", &vs) // first match ok, second has no num
+		assertRequiredErr(t, err, "regextra.UnmarshalAll:", "Num", "num")
 	})
 }
 
