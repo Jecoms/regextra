@@ -35,6 +35,7 @@ Thumbs.db
 tmp/
 temp/
 
-# Personal agent/assistant workflow files (CONTRIBUTING.md is the source of truth)
+# Personal agent/assistant workflow files
+# (CONTRIBUTING.md is the source of truth for submitting code changes)
 AGENTS.md
 CLAUDE.md
