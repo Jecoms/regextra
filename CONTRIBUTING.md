@@ -113,6 +113,14 @@ When designing new features, follow established stdlib patterns if using same na
 ### Performance Considerations
 - Prefer stdlib implementations over custom code
 - Profile before optimizing
+- **Benchmarks must hold or improve.** When refactoring a hot path or adding a
+  feature, compare the affected `*_bench_test.go` before and after with
+  `benchstat` (`go test -bench=. -benchmem -count=N`); the per-call decode/match
+  hot path should stay allocation-neutral.
+- **Justify any regression.** A change that degrades a benchmark must first weigh
+  lower-cost alternatives, then justify the remaining cost by the value of the
+  change — confining unavoidable cost to cold paths (one-time `Compile`, error
+  construction) rather than the hot path.
 
 ## Project Structure
 
@@ -176,6 +184,7 @@ go test -bench=. -benchmem
 2. **Run linter**: `golangci-lint run`
 3. **Check formatting**: `gofmt -s -l .`
 4. **Update documentation**: Add examples and update README if needed
+5. **Check benchmarks**: for hot-path or feature changes, confirm the relevant `*_bench_test.go` benchmarks hold or improve (or justify the regression)
 
 ### PR Guidelines
 - **One feature per PR**: Keep changes focused
