@@ -102,11 +102,41 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 		return nil, fmt.Errorf("regextra.Compile: T must be a struct type, got %v", rt)
 	}
 
-	d := &Decoder[T]{
-		pattern: pattern,
-		re:      re,
+	// strict=true: the Decoder validates eagerly so a successful Compile
+	// guarantees no tag-related decode errors later.
+	fields, err := buildDecodePlan(rt, re, true)
+	if err != nil {
+		return nil, err
 	}
 
+	return &Decoder[T]{
+		pattern: pattern,
+		re:      re,
+		fields:  fields,
+	}, nil
+}
+
+// buildDecodePlan maps each exported field of rt to its regex capture group and
+// parsed tag options, returning the per-field decode plan that runDecodePlan
+// executes against a match. It is the single plan-construction path shared by
+// the [Decoder] (compiled once via compileDecoder) and the [Unmarshal] /
+// [UnmarshalAll] free functions (built fresh per call) — one set of
+// field-mapping semantics, so the two paths can't drift again.
+//
+// strict selects the validation posture. The Decoder passes strict=true and any
+// of three checks fails the build, so a successful Compile is fully validated:
+//   - a field references a group not declared on the pattern and has no default
+//   - a `default=` value does not convert to the field's type
+//   - a `layout=` option sits on a non-time.Time field
+//
+// The Unmarshal path passes strict=false and tolerates all three rather than
+// rejecting them — a missing group with no default skips the field, an
+// unconvertible default surfaces only if that field is actually reached at
+// decode time, and a stray `layout=` is ignored on non-time fields by
+// setFieldValue. This preserves Unmarshal's historical best-effort behavior, so
+// buildDecodePlan never returns a non-nil error when strict=false.
+func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDecoder, error) {
+	var fields []fieldDecoder
 	for i := range rt.NumField() {
 		sf := rt.Field(i)
 		if !sf.IsExported() {
@@ -122,9 +152,9 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 		if groupName == "" {
 			// No explicit tag — fall back to matching the field name against a
 			// declared group: exact first, then case-insensitively via Unicode
-			// simple-fold (the same predicate Unmarshal's runtime fallback
-			// uses; see matchGroupName). A field that matches no group and has
-			// no default is treated as a typo and fails at compile time below.
+			// simple-fold (see matchGroupName). A field that matches no group
+			// and has no default is treated as a typo and, under strict, fails
+			// the build below.
 			groupName = matchGroupName(re, sf.Name)
 		}
 
@@ -132,32 +162,34 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 		var groupIdxs []int
 		if groupName != "" {
 			groupIdxs = subexpIndexes(re, groupName)
-			if len(groupIdxs) == 0 && !hasDefault {
+			if len(groupIdxs) == 0 && !hasDefault && strict {
 				// Missing group with no default IS a typo — fail at compile.
 				// With a default, missing group is intentional (the default
-				// always fires).
+				// always fires). The lenient path skips the field below.
 				return nil, fmt.Errorf("regextra.Compile: field %s references group %q which is not declared on the pattern", sf.Name, groupName)
 			}
 		}
 
-		// Validate `default=` eagerly: try to assign it to a fresh field
-		// and surface any conversion error at compile time, not at first
-		// request.
-		if def, ok := opts["default"]; ok {
-			probe := reflect.New(sf.Type).Elem()
-			if err := setFieldValue(probe, def, opts); err != nil {
-				return nil, fmt.Errorf("regextra.Compile: field %s default %q does not convert to %v: %w", sf.Name, def, sf.Type, err)
+		if strict {
+			// Validate `default=` eagerly: try to assign it to a fresh field
+			// and surface any conversion error at compile time, not at first
+			// request.
+			if def, ok := opts["default"]; ok {
+				probe := reflect.New(sf.Type).Elem()
+				if err := setFieldValue(probe, def, opts); err != nil {
+					return nil, fmt.Errorf("regextra.Compile: field %s default %q does not convert to %v: %w", sf.Name, def, sf.Type, err)
+				}
 			}
-		}
 
-		// Validate `layout=` is only on time.Time fields.
-		if _, ok := opts["layout"]; ok {
-			ft := sf.Type
-			if ft.Kind() == reflect.Ptr {
-				ft = ft.Elem()
-			}
-			if ft != timeTimeType {
-				return nil, fmt.Errorf("regextra.Compile: field %s has `layout=` option but is %v, not time.Time", sf.Name, sf.Type)
+			// Validate `layout=` is only on time.Time fields.
+			if _, ok := opts["layout"]; ok {
+				ft := sf.Type
+				if ft.Kind() == reflect.Ptr {
+					ft = ft.Elem()
+				}
+				if ft != timeTimeType {
+					return nil, fmt.Errorf("regextra.Compile: field %s has `layout=` option but is %v, not time.Time", sf.Name, sf.Type)
+				}
 			}
 		}
 
@@ -167,7 +199,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 			continue
 		}
 
-		d.fields = append(d.fields, fieldDecoder{
+		fields = append(fields, fieldDecoder{
 			fieldIndex:   i,
 			groupName:    groupName,
 			groupIndexes: groupIdxs,
@@ -175,7 +207,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 		})
 	}
 
-	return d, nil
+	return fields, nil
 }
 
 // subexpIndexes returns the submatch index of every occurrence of the named
@@ -293,14 +325,23 @@ func (d *Decoder[T]) Pattern() string {
 	return d.pattern
 }
 
-// decode walks the precomputed field plan against a single match's group
-// indices and writes the values into rv (the addressable reflect.Value of a
-// T). matches is a FindStringSubmatchIndex-style index slice (or one element
-// of FindAllStringSubmatchIndex); target is the string those indices slice
-// into.
+// decode walks the precomputed field plan against a single match and writes the
+// values into rv (the addressable reflect.Value of a T). It is a thin wrapper
+// over the shared runDecodePlan core, which the [Unmarshal] / [UnmarshalAll]
+// free functions drive too.
 func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) error {
-	for _, fd := range d.fields {
-		// Pick the value the same way the Unmarshal path does (see
+	return runDecodePlan(d.fields, rv, target, matches)
+}
+
+// runDecodePlan executes a decode plan (from buildDecodePlan) against a single
+// match's group indices, writing the decoded values into rv — the addressable
+// reflect.Value of a struct. matches is a FindStringSubmatchIndex-style index
+// slice (or one element of FindAllStringSubmatchIndex); target is the string
+// those indices slice into. It is the single decode core shared by [Decoder]
+// (One/All/Iter) and the [Unmarshal] / [UnmarshalAll] free functions.
+func runDecodePlan(fields []fieldDecoder, rv reflect.Value, target string, matches []int) error {
+	for _, fd := range fields {
+		// Pick the value the same way the map-based readers do (see
 		// namedGroupValues): the last occurrence that participated in the
 		// match wins, even if it matched an empty span. A non-participating
 		// occurrence (negative start index) never overwrites a participating
@@ -318,7 +359,7 @@ func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) erro
 			value = target[start:matches[2*gi+1]]
 			found = true
 		}
-		// The skip-or-default contract is shared with the Unmarshal path via
+		// The skip-or-default contract is shared with the map-based readers via
 		// resolveGroupValue (see its doc): default= substitutes when no
 		// occurrence participated OR the winning value is empty, otherwise an
 		// empty/absent group skips the field rather than feeding "" to the

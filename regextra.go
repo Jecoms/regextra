@@ -307,9 +307,8 @@ func NamedGroups(re *regexp.Regexp, target string) map[string]string {
 	if m == nil {
 		return make(map[string]string)
 	}
-	// includeNonParticipating: NamedGroups surfaces every declared group,
-	// including ones that did not participate (mapped to ""). The Unmarshal
-	// path passes false so those don't reach typed-field conversion as "".
+	// includeNonParticipating=true: NamedGroups surfaces every declared group,
+	// including ones that did not participate in the match (mapped to "").
 	return namedGroupValues(re, target, m, true)
 }
 
@@ -391,14 +390,15 @@ func NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[strin
 //
 // includeNonParticipating controls what happens to a group name that never
 // participated in the match:
-//   - true ([NamedGroups]): the name is recorded as "" so callers see every
-//     declared group.
-//   - false (the [Unmarshal] / [UnmarshalAll] path): the name is omitted, so
-//     a non-participating optional group looks like "no value" to
-//     populateStruct — it is left at its zero value rather than handed "",
-//     which would fail conversion on a typed field. A duplicate that
-//     participates elsewhere still sets the key, so omitting here never drops
-//     a real value.
+//   - true (the [NamedGroups] family — its only callers today): the name is
+//     recorded as "" so callers see every declared group.
+//   - false: the name is omitted entirely, so a non-participating optional
+//     group reads as "no value" rather than an empty match. A duplicate that
+//     participates elsewhere still sets the key, so omitting never drops a real
+//     value. The typed [Unmarshal] / [UnmarshalAll] path no longer routes
+//     through this map — it shares the [Decoder]'s index-based decode plan (see
+//     buildDecodePlan / runDecodePlan in decoder.go) — but the flag is kept for
+//     the omit-vs-empty distinction.
 func namedGroupValues(re *regexp.Regexp, target string, m []int, includeNonParticipating bool) map[string]string {
 	names := re.SubexpNames()
 	result := make(map[string]string, len(names))

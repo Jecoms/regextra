@@ -1172,6 +1172,102 @@ func TestUnmarshalAll_duplicateNames(t *testing.T) {
 	}
 }
 
+// Pins the #108 fold-fallback determinism + participation nuance. When several
+// distinctly-spelled declared group names fold-equal one untagged field, the
+// field-name fallback now resolves at build time via matchGroupName over
+// re.SubexpNames() — picking the declaration-first fold-sibling deterministically
+// and participation-agnostically — instead of the old map-iteration order over
+// the participating-only namedGroupValues map.
+//
+// Observable consequence: if the declaration-first fold-sibling does NOT
+// participate in the match but a later one does, the field is now skipped where
+// the old participating-only fallback would have populated it from the
+// participating sibling. This is the intended Unmarshal↔Decoder alignment (both
+// paths now agree), not a regression — the test exists to lock the behavior so
+// it can't silently flip back.
+func TestUnmarshalDecoder_foldFallbackDeterministicParticipation(t *testing.T) {
+	// Two distinctly-spelled groups, "value" then "VALUE", both fold-equal the
+	// untagged field "Value". matchGroupName binds the declaration-first one
+	// ("value") regardless of which participates.
+	const pattern = `(?:a(?P<value>\d+)|b(?P<VALUE>\d+))`
+	re := regexp.MustCompile(pattern)
+	type rec struct {
+		Value int
+	}
+	dec := rx.MustCompile[rec](pattern)
+
+	// "a5": the declaration-first sibling ("value") participates → populated.
+	// "b5": only the later sibling ("VALUE") participates; the bound
+	// declaration-first "value" did not → field stays zero on BOTH paths.
+	cases := []struct {
+		input string
+		want  int
+	}{
+		{"a5", 5},
+		{"b5", 0},
+	}
+	for _, tc := range cases {
+		var u rec
+		if err := rx.Unmarshal(re, tc.input, &u); err != nil {
+			t.Fatalf("Unmarshal(%q): %v", tc.input, err)
+		}
+		got, err := dec.One(tc.input)
+		if err != nil {
+			t.Fatalf("Decoder.One(%q): %v", tc.input, err)
+		}
+		if u.Value != tc.want {
+			t.Errorf("Unmarshal(%q): Value = %d, want %d", tc.input, u.Value, tc.want)
+		}
+		if got.Value != tc.want {
+			t.Errorf("Decoder.One(%q): Value = %d, want %d", tc.input, got.Value, tc.want)
+		}
+		if u.Value != got.Value {
+			t.Errorf("Unmarshal/Decoder disagree on %q: %d vs %d", tc.input, u.Value, got.Value)
+		}
+	}
+}
+
+// Pins the #108 field-conversion error-prefix unification. Routing
+// Unmarshal/UnmarshalAll through runDecodePlan changed their wrapping prefix from
+// the old `regextra: failed to set field X: …` to `field X: …`, matching
+// Decoder. The underlying `cannot convert …` message is unchanged. This locks
+// the wording so the three paths can't drift.
+func TestUnmarshalDecoder_fieldConversionErrorPrefixUnified(t *testing.T) {
+	const pattern = `(?P<age>\S+)`
+	re := regexp.MustCompile(pattern)
+	type rec struct {
+		Age int `regex:"age"`
+	}
+
+	var u rec
+	uErr := rx.Unmarshal(re, "abc", &u)
+
+	var all []rec
+	allErr := rx.UnmarshalAll(re, "abc", &all)
+
+	_, oneErr := rx.MustCompile[rec](pattern).One("abc")
+
+	for name, err := range map[string]error{
+		"Unmarshal":    uErr,
+		"UnmarshalAll": allErr,
+		"Decoder.One":  oneErr,
+	} {
+		if err == nil {
+			t.Fatalf("%s: got nil error, want conversion failure", name)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "field Age:") {
+			t.Errorf("%s: error = %q, want unified `field Age:` prefix", name, msg)
+		}
+		if strings.Contains(msg, "failed to set field") {
+			t.Errorf("%s: error = %q, still carries the old `failed to set field` prefix", name, msg)
+		}
+		if !strings.Contains(msg, "cannot convert") {
+			t.Errorf("%s: error = %q, want the underlying `cannot convert` message preserved", name, msg)
+		}
+	}
+}
+
 // A non-participating optional group on a typed field is left at its zero value
 // by both paths; Unmarshal no longer errors trying to convert "" (issue-105
 // alignment of the Unmarshal and Decoder paths).

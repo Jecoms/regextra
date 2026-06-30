@@ -726,3 +726,83 @@ func TestDecoderDecodeError(t *testing.T) {
 		assertDecodeErr(t, iterErr, "regextra.Decoder.Iter:", "bad")
 	})
 }
+
+// ── Shared decode-plan extraction (#108) ──────────────────────────────────────
+
+// Locks the extracted shared decode core against drift. The #108 refactor split
+// the Decoder's compile path into compileDecoder→buildDecodePlan and the
+// One/All/Iter decode path into Decoder.decode→runDecodePlan, then routed
+// Unmarshal/UnmarshalAll through the very same buildDecodePlan/runDecodePlan.
+// This test exercises one struct that touches several plan behaviors at once —
+// a defaulted field, a duplicate group name (last-participating-occurrence
+// wins), and a typed conversion — and asserts every path that runs the shared
+// core (Decoder.One, Decoder.All, Decoder.Iter, Unmarshal, UnmarshalAll) decodes
+// each match identically. If the extracted compile or decode core diverges for
+// any path, this fails.
+func TestSharedDecodePlan_AllPathsAgree(t *testing.T) {
+	type rec struct {
+		Word string `regex:"word"`               // duplicate group name across branches
+		Age  int    `regex:"age"`                // typed conversion
+		Role string `regex:"role,default=guest"` // default fires (no "role" group)
+	}
+	// Two branches reuse "word"; only one participates per match. "age" is a
+	// plain typed group. There is no "role" group, so the default applies.
+	const pattern = `(?:x(?P<word>\w+)|y(?P<word>\w+)) (?P<age>\d+)`
+	re := regexp.MustCompile(pattern)
+	const input = "xalice 30 ybob 25"
+
+	want := []rec{
+		{Word: "alice", Age: 30, Role: "guest"},
+		{Word: "bob", Age: 25, Role: "guest"},
+	}
+
+	dec := rx.MustCompile[rec](pattern)
+
+	// Decoder.All
+	all, err := dec.All(input)
+	if err != nil {
+		t.Fatalf("Decoder.All: %v", err)
+	}
+	if !reflect.DeepEqual(all, want) {
+		t.Errorf("Decoder.All = %+v, want %+v", all, want)
+	}
+
+	// Decoder.One decodes the first match like the first All entry.
+	one, err := dec.One(input)
+	if err != nil {
+		t.Fatalf("Decoder.One: %v", err)
+	}
+	if !reflect.DeepEqual(one, want[0]) {
+		t.Errorf("Decoder.One = %+v, want %+v", one, want[0])
+	}
+
+	// Decoder.Iter yields the same sequence as All.
+	var iter []rec
+	for v, err := range dec.Iter(input) {
+		if err != nil {
+			t.Fatalf("Decoder.Iter: %v", err)
+		}
+		iter = append(iter, v)
+	}
+	if !reflect.DeepEqual(iter, want) {
+		t.Errorf("Decoder.Iter = %+v, want %+v", iter, want)
+	}
+
+	// Unmarshal (first match) and UnmarshalAll (every match) run the same
+	// shared plan and must agree field-for-field with the Decoder paths.
+	var u rec
+	if err := rx.Unmarshal(re, input, &u); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(u, want[0]) {
+		t.Errorf("Unmarshal = %+v, want %+v", u, want[0])
+	}
+
+	var ua []rec
+	if err := rx.UnmarshalAll(re, input, &ua); err != nil {
+		t.Fatalf("UnmarshalAll: %v", err)
+	}
+	if !reflect.DeepEqual(ua, want) {
+		t.Errorf("UnmarshalAll = %+v, want %+v", ua, want)
+	}
+}
