@@ -5,6 +5,7 @@ import (
 	rx "github.com/jecoms/regextra"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -535,6 +536,176 @@ func ExampleReplace() {
 	})
 	fmt.Println(out)
 	// Output: alice@redacted bob@redacted
+}
+
+func TestReplaceFunc(t *testing.T) {
+	upper := func(_, m string) string { return strings.ToUpper(m) }
+
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		fn      func(group, match string) string
+		want    string
+	}{
+		{
+			name:    "redaction: mask all but last four digits",
+			pattern: `(?P<card>\d{12,19})`,
+			target:  "card 4111111111111111 ok",
+			fn: func(_, m string) string {
+				return strings.Repeat("*", len(m)-4) + m[len(m)-4:]
+			},
+			want: "card ************1111 ok",
+		},
+		{
+			name:    "normalization: lowercase captured host across matches",
+			pattern: `https?://(?P<host>[\w.]+)`,
+			target:  "http://Example.COM and https://API.Example.com",
+			fn:      func(_, m string) string { return strings.ToLower(m) },
+			want:    "http://example.com and https://api.example.com",
+		},
+		{
+			name:    "fn receives the group name",
+			pattern: `(?P<key>\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2",
+			fn:      func(group, m string) string { return group + ":" + m },
+			want:    "key:a=val:1 key:b=val:2",
+		},
+		{
+			name:    "return match verbatim leaves the group unchanged",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com",
+			fn: func(group, m string) string {
+				if group == "domain" {
+					return "redacted"
+				}
+				return m // leave user unchanged
+			},
+			want: "alice@redacted",
+		},
+		{
+			name:    "no match returns target unchanged",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "no matches here",
+			fn:      upper,
+			want:    "no matches here",
+		},
+		{
+			name:    "preserves non-matching text between matches",
+			pattern: `(?P<num>\d+)`,
+			target:  "a 1 b 2 c 3 d",
+			fn:      func(_, m string) string { return "<" + m + ">" },
+			want:    "a <1> b <2> c <3> d",
+		},
+		{
+			// Inner group inside an already-substituted outermost span is not
+			// reached by fn — mirrors Replace's overlap rule.
+			name:    "nested groups, outermost wins and inner fn not invoked",
+			pattern: `(?P<outer>(?P<inner>\w+)@[\w.]+)`,
+			target:  "alice@example.com",
+			fn:      upper,
+			want:    "ALICE@EXAMPLE.COM",
+		},
+		{
+			// Non-participating optional group is skipped, so fn never sees it.
+			name:    "optional non-participating group skipped",
+			pattern: `(?P<word>\w+)(?P<bang>!)?`,
+			target:  "hi there",
+			fn:      func(_, m string) string { return "[" + m + "]" },
+			want:    "[hi] [there]",
+		},
+		{
+			// Duplicate group name: fn runs for each participating occurrence.
+			name:    "duplicate group name, fn runs per occurrence",
+			pattern: `(?P<w>\w+) (?P<w>\w+)`,
+			target:  "hello world",
+			fn:      upper,
+			want:    "HELLO WORLD",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := rx.ReplaceFunc(re, tt.target, tt.fn)
+			if got != tt.want {
+				t.Errorf("ReplaceFunc = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReplaceFuncInnerGroupNotInvoked(t *testing.T) {
+	// fn must never be called for an inner group suppressed by an outermost
+	// span — assert the callback is not invoked for the "inner" name.
+	re := regexp.MustCompile(`(?P<outer>(?P<inner>\w+)@[\w.]+)`)
+	var seen []string
+	out := rx.ReplaceFunc(re, "alice@example.com", func(group, m string) string {
+		seen = append(seen, group)
+		return strings.ToUpper(m)
+	})
+	if out != "ALICE@EXAMPLE.COM" {
+		t.Errorf("ReplaceFunc = %q, want %q", out, "ALICE@EXAMPLE.COM")
+	}
+	for _, g := range seen {
+		if g == "inner" {
+			t.Errorf("fn invoked for suppressed inner group; groups seen = %v", seen)
+		}
+	}
+	if len(seen) != 1 || seen[0] != "outer" {
+		t.Errorf("groups seen = %v, want [outer]", seen)
+	}
+}
+
+func TestReplaceFuncNoMatchNeverCallsFn(t *testing.T) {
+	re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+	called := false
+	out := rx.ReplaceFunc(re, "no matches here", func(_, m string) string {
+		called = true
+		return m
+	})
+	if called {
+		t.Error("fn was called despite no match")
+	}
+	if out != "no matches here" {
+		t.Errorf("ReplaceFunc = %q, want target unchanged", out)
+	}
+}
+
+func TestReplaceFuncNilFn(t *testing.T) {
+	// A nil fn is a programmer error. It panics on the first substituted match,
+	// mirroring regexp.Regexp.ReplaceAllStringFunc, but never panics when there
+	// is nothing to substitute (no match returns target before fn is reached).
+	t.Run("panics on first match", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Error("ReplaceFunc with nil fn did not panic on a match")
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		rx.ReplaceFunc(re, "HELLO", nil)
+	})
+
+	t.Run("no panic on no match", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("ReplaceFunc with nil fn panicked on no match: %v", r)
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		if out := rx.ReplaceFunc(re, "no matches here", nil); out != "no matches here" {
+			t.Errorf("ReplaceFunc = %q, want target unchanged", out)
+		}
+	})
+}
+
+func ExampleReplaceFunc() {
+	// Mask all but the last four digits of a captured card number.
+	re := regexp.MustCompile(`(?P<card>\d{12,19})`)
+	out := rx.ReplaceFunc(re, "card 4111111111111111 ok", func(_, match string) string {
+		return strings.Repeat("*", len(match)-4) + match[len(match)-4:]
+	})
+	fmt.Println(out)
+	// Output: card ************1111 ok
 }
 
 func TestValidate(t *testing.T) {
