@@ -39,6 +39,19 @@ var (
 	benchNoMatchInput   = "no matches here"
 )
 
+// benchRequired — benchSimple's three fields, each tagged `required`. It shares
+// benchSimplePattern/benchSimpleInput so a benchstat diff against
+// Unmarshal/simpleThreeField isolates the steady-state cost of the `required`
+// flag on the decode hot path: the per-field `fd.required` presence check and
+// the plan-retention path. All groups participate here — the requirement-failed
+// path is cold error construction (`*RequiredGroupError`), covered by tests, not
+// benchmarked.
+type benchRequired struct {
+	Name   string `regex:"name,required"`
+	Age    int    `regex:"age,required"`
+	Active bool   `regex:"active,required"`
+}
+
 // benchWide — a 20-field destination for the per-field overhead sweep.
 type benchWide struct {
 	F0  string `regex:"f0"`
@@ -260,6 +273,8 @@ var (
 func BenchmarkUnmarshal(b *testing.B) {
 	// representative — the common shapes.
 	benchCase(b, "simpleThreeField", func() { var s benchSimple; sinkErr = rx.Unmarshal(benchSimpleRe, benchSimpleInput, &s) })
+	// requiredFields — head-to-head with simpleThreeField; isolates the `required` flag's hot-path cost (all groups participate).
+	benchCase(b, "requiredFields", func() { var s benchRequired; sinkErr = rx.Unmarshal(benchSimpleRe, benchSimpleInput, &s) })
 	benchCase(b, "allNumericTypes", func() { var s benchNumeric; sinkErr = rx.Unmarshal(benchNumericRe, benchNumericIn, &s) })
 	benchCase(b, "customUnmarshaler", func() { var s benchCustom; sinkErr = rx.Unmarshal(benchCustomRe, benchCustomIn, &s) })
 	benchCase(b, "timeDurationField", func() { var s benchDuration; sinkErr = rx.Unmarshal(benchDurRe, benchDurIn, &s) })
