@@ -166,7 +166,7 @@ if err := regextra.Validate(re, "name", "age", "ssn"); err != nil {
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
 
-**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`, `time.Time`, `time.Duration`. Pointer-to-any-of-the-above is also supported — nil pointers are allocated, non-nil pointers are reused (pointee overwritten). For `time.Time`, several common layouts are tried (RFC3339, RFC3339Nano, `2006-01-02 15:04:05`, `2006-01-02`, `15:04:05`); `time.Duration` is parsed via `time.ParseDuration`. For caller-defined types, implement [`RegexUnmarshaler`](#regexunmarshaler-interface).
+**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`, `time.Time`, `time.Duration`. Pointer-to-any-of-the-above is also supported — nil pointers are allocated, non-nil pointers are reused (pointee overwritten). For `time.Time`, several common layouts are tried (RFC3339, RFC3339Nano, `2006-01-02 15:04:05`, `2006-01-02`, `15:04:05`); `time.Duration` is parsed via `time.ParseDuration`. Any field whose type (or pointer-to-type) implements [`encoding.TextUnmarshaler`](https://pkg.go.dev/encoding#TextUnmarshaler) is also supported out of the box — e.g. `netip.Addr`, `math/big.Int`, `log/slog.Level`, `github.com/google/uuid.UUID` — by calling its `UnmarshalText` with the matched value. For caller-defined types, implement [`RegexUnmarshaler`](#regexunmarshaler-interface).
 
 **Field mapping priority:**
 1. Struct tag `regex:"groupname"` if provided (highest priority)
@@ -238,6 +238,8 @@ type RegexUnmarshaler interface {
 ```
 
 The extension point for caller-defined types the built-in type switch can't handle (URLs, enums, big numbers, IP addresses, etc.).
+
+**Conversion precedence.** For each field, `Unmarshal` tries in order: (1) `RegexUnmarshaler` — the package-specific hook always wins; (2) the `time.Time` / `time.Duration` special-cases (so the multi-layout fallback and `layout` tag option are preserved — `time.Time` happens to implement `encoding.TextUnmarshaler` but its `UnmarshalText` only accepts RFC3339, so it is *not* routed through the fallback); (3) `encoding.TextUnmarshaler` — for any other type that implements it; (4) the built-in string/int/uint/float/bool conversion. So a type implementing both `RegexUnmarshaler` and `encoding.TextUnmarshaler` dispatches on `UnmarshalRegex`.
 
 ```go
 type Status int

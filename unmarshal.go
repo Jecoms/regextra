@@ -1,6 +1,7 @@
 package regextra
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -359,6 +360,12 @@ type RegexUnmarshaler interface {
 // the implements-check on every field doesn't pay the reflect.TypeOf cost.
 var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
 
+// textUnmarshalerType is the reflect.Type of encoding.TextUnmarshaler, cached
+// for the same reason as regexUnmarshalerType. Many stdlib and third-party
+// types (netip.Addr, big.Int, slog.Level, uuid.UUID, ...) already implement
+// it, so honoring it lets those drop into a struct field with no wrapper.
+var textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+
 // setFieldValue sets the field value with appropriate type conversion.
 // `opts` carries per-field tag options parsed from `regex:"name,key=value,..."`.
 // Currently consulted: `layout` (for time.Time fields). Pass nil for no opts.
@@ -435,6 +442,32 @@ func setFieldValue(field reflect.Value, value string, opts map[string]string) er
 		}
 		field.Set(reflect.ValueOf(d))
 		return nil
+	}
+
+	// 3. encoding.TextUnmarshaler fallback. Ranks below RegexUnmarshaler (the
+	//    package-specific extension point keeps priority) AND below the
+	//    time.Time/time.Duration special-cases above: time.Time itself
+	//    satisfies TextUnmarshaler but its UnmarshalText only accepts RFC3339,
+	//    so checking it earlier would silently drop the multi-layout parseTime
+	//    fallback and the `layout` tag option. Mirrors the RegexUnmarshaler
+	//    dispatch: addressable fields via Addr(), interface-typed fields via
+	//    Implements. Pointer fields are handled in step 0 (recurse into Elem,
+	//    where the pointee is addressable and caught here).
+	if field.CanAddr() {
+		if u, ok := field.Addr().Interface().(encoding.TextUnmarshaler); ok {
+			if err := u.UnmarshalText([]byte(value)); err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			return nil
+		}
+	}
+	if field.Type().Implements(textUnmarshalerType) {
+		if u, ok := field.Interface().(encoding.TextUnmarshaler); ok {
+			if err := u.UnmarshalText([]byte(value)); err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			return nil
+		}
 	}
 
 	switch field.Kind() {
