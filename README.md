@@ -202,6 +202,15 @@ if err := regextra.Validate(re, "name", "age", "ssn"); err != nil {
 }
 ```
 
+On failure `Validate` returns an `errors.As`-able `*regextra.ValidationError` whose `Missing` field carries the absent group names (in the order passed), so you can branch on the missing set without parsing the message — see [§Stability](#stability) on comparing types, not strings:
+
+```go
+var ve *regextra.ValidationError
+if errors.As(err, &ve) {
+    // ve.Missing == []string{"ssn"}
+}
+```
+
 ### `Unmarshal(re *regexp.Regexp, target string, v any) error`
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
