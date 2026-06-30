@@ -133,7 +133,7 @@ go test -bench=. -benchmem
 ```
 
 ### Test Coverage Expectations
-- Aim for coverage: >85%
+- Aim for coverage: >92% (enforced by the CI coverage gate in `.github/workflows/test.yml`)
 - All public APIs must be tested
 - Critical error paths must be covered
 - Edge cases: nil pointers, empty inputs, no matches

@@ -59,10 +59,10 @@ jobs:
 
     - name: Enforce coverage threshold
       env:
-        # Floor below which the build fails. Current baseline is ~87.6%; this
-        # leaves ~3 points of slack to absorb small refactors without forcing
-        # tests on every micro-PR.
-        MIN_COVERAGE: '85.0'
+        # Floor below which the build fails. Real baseline is ~97%; this leaves
+        # ~5 points of slack to absorb small refactors without forcing tests on
+        # every micro-PR. Don't set it so high a minor change turns CI red.
+        MIN_COVERAGE: '92.0'
       run: |
         set -euo pipefail
         total=$(go tool cover -func=coverage.txt | awk '/^total:/ {print $3}' | tr -d '%')
