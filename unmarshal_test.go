@@ -1837,6 +1837,26 @@ func TestUnmarshal_TextUnmarshaler_Error(t *testing.T) {
 	}
 }
 
+// TestUnmarshal_TextUnmarshaler_Value covers the addressable (CanAddr) error
+// arm. An interface-typed field reaches UnmarshalText via Type().Implements
+// instead, so its error arm is distinct — drive it with the same bad input.
+func TestUnmarshal_TextUnmarshaler_InterfaceField_Error(t *testing.T) {
+	type rec struct {
+		Addr encoding.TextUnmarshaler `regex:"addr"`
+	}
+
+	re := regexp.MustCompile(`(?P<addr>\S+)`)
+	var ip netip.Addr
+	got := rec{Addr: &ip}
+	err := rx.Unmarshal(re, "not-an-ip", &got)
+	if err == nil {
+		t.Fatal("expected error for invalid netip.Addr via interface field, got nil")
+	}
+	if !strings.Contains(err.Error(), "not-an-ip") {
+		t.Errorf("error %q should mention the offending value", err)
+	}
+}
+
 // regexAndText implements BOTH RegexUnmarshaler and encoding.TextUnmarshaler;
 // RegexUnmarshaler must win.
 type regexAndText struct {
@@ -2023,5 +2043,48 @@ func TestUnmarshalArgErrorPrefixes(t *testing.T) {
 	if err := rx.UnmarshalAll(re, "30", nil); err == nil ||
 		!strings.HasPrefix(err.Error(), "regextra.UnmarshalAll:") {
 		t.Errorf("UnmarshalAll(nil) error = %v, want regextra.UnmarshalAll: prefix", err)
+	}
+}
+
+// A field whose kind setFieldValue can't convert (here a nested struct, but a
+// slice or map behaves the same) and which doesn't implement RegexUnmarshaler
+// or encoding.TextUnmarshaler falls through to the "unsupported field type"
+// arm. Nested structs are not flattened — a plausible user mistake.
+func TestUnmarshal_unsupportedFieldType(t *testing.T) {
+	type Nested struct{ X string }
+	type rec struct {
+		Field Nested `regex:"field"`
+	}
+
+	re := regexp.MustCompile(`(?P<field>\w+)`)
+	var got rec
+	err := rx.Unmarshal(re, "hello", &got)
+	if err == nil {
+		t.Fatal("expected an error for a struct-typed field, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported field type") {
+		t.Errorf("error %q, want it to mention %q", err, "unsupported field type")
+	}
+}
+
+// An untagged exported field whose name matches no declared group, with no
+// default= to fall back on, is silently skipped by the lenient decode plan
+// (decoder.go) and left at its zero value rather than erroring.
+func TestUnmarshal_untaggedFieldNoMatchingGroupSkipped(t *testing.T) {
+	type rec struct {
+		Name    string `regex:"name"`
+		Missing string // no tag, no "missing"/"Missing" group, no default — skipped
+	}
+
+	re := regexp.MustCompile(`(?P<name>\w+)`)
+	got := rec{Missing: "untouched"}
+	if err := rx.Unmarshal(re, "Alice", &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v, want nil (unmapped field should be skipped)", err)
+	}
+	if got.Name != "Alice" {
+		t.Errorf("Name = %q, want %q", got.Name, "Alice")
+	}
+	if got.Missing != "untouched" {
+		t.Errorf("Missing = %q, want it left unchanged at %q", got.Missing, "untouched")
 	}
 }

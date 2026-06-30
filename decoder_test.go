@@ -39,6 +39,27 @@ func TestCompile_fieldNameFallback(t *testing.T) {
 	}
 }
 
+// An untagged field whose Go name equals a declared group exactly (same case)
+// resolves via matchGroupName's exact-match branch, before the case-insensitive
+// fold is consulted. TestCompile_fieldNameFallback exercises only the fold path
+// (field Name → group name), so this locks in the exact arm.
+func TestCompile_fieldNameExactMatch(t *testing.T) {
+	type P struct {
+		Name string // no tag — matches group "Name" exactly (not via case-fold)
+	}
+	d, err := rx.Compile[P](`(?P<Name>\w+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	p, err := d.One("Alice")
+	if err != nil {
+		t.Fatalf("One() error = %v", err)
+	}
+	if p.Name != "Alice" {
+		t.Errorf("Name = %q, want %q (exact field-name → group match)", p.Name, "Alice")
+	}
+}
+
 // ── Compile: error paths ──────────────────────────────────────────────────────
 
 func TestCompile_invalidPattern(t *testing.T) {
