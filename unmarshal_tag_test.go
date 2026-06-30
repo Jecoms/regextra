@@ -63,13 +63,12 @@ func TestUnmarshal_loneTokenIsIgnored(t *testing.T) {
 }
 
 func TestUnmarshal_emptyOptionPieceIsSkipped(t *testing.T) {
-	// An empty option piece is skipped without disturbing the options around
-	// it: the `default` still resolves when the group is absent. The skip
-	// applies the same way wherever the empty piece falls, so these positional
+	// An empty option piece is ignored without disturbing the options around
+	// it: the `default` still resolves when the group is absent. The behavior
+	// holds the same way wherever the empty piece falls, so these positional
 	// variants share subtests (struct tags are compile-time literals, so each
-	// needs its own struct rather than a value table). This pins the observable
-	// behavior, not a specific parser branch — an empty piece is inert whether
-	// the dedicated skip handles it or it falls through the lone-token path.
+	// needs its own struct rather than a value table). An empty piece has no
+	// '=', so the parser drops it via the same path as a lone token.
 	re := regexp.MustCompile(`(?P<name>\w+)`) // no "role" group; default fires
 
 	t.Run("doubled comma", func(t *testing.T) {
