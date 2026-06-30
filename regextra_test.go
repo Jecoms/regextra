@@ -808,6 +808,17 @@ func TestValidateValidationError(t *testing.T) {
 			t.Errorf("errors.As recovered %+v from a nil error, want false", ve)
 		}
 	})
+
+	// A directly-constructed ValidationError with no Missing names must not
+	// render a dangling "missing named groups: " separator. Validate never
+	// produces this (it only wraps a non-empty set), but the type is exported.
+	t.Run("empty Missing renders clean message", func(t *testing.T) {
+		for _, ve := range []*rx.ValidationError{{}, {Missing: []string{}}} {
+			if got, want := ve.Error(), "no missing named groups"; got != want {
+				t.Errorf("(&ValidationError{Missing:%v}).Error() = %q, want %q", ve.Missing, got, want)
+			}
+		}
+	})
 }
 
 // status is a custom type whose pointer satisfies RegexUnmarshaler;

@@ -86,8 +86,14 @@ type DecodeError struct {
 }
 
 // Error implements the error interface. The calling entrypoint prepends its
-// own `regextra.<Entrypoint>:` prefix when wrapping.
+// own `regextra.<Entrypoint>:` prefix when wrapping. When Err is nil (only
+// reachable by constructing the value directly — the decode path always sets
+// an underlying cause) it reports "no decode error" rather than a message with
+// a dangling "<nil>" cause.
 func (e *DecodeError) Error() string {
+	if e.Err == nil {
+		return "no decode error"
+	}
 	return fmt.Sprintf("field %s: %v", e.Field, e.Err)
 }
 

@@ -2010,6 +2010,15 @@ func TestUnmarshalDecodeError(t *testing.T) {
 			t.Errorf("error = %q, want a regextra.UnmarshalAll: prefix", err.Error())
 		}
 	})
+
+	// A directly-constructed DecodeError with no underlying Err must not render
+	// a dangling "field : <nil>" message. The decode path always sets a cause,
+	// but the type is exported, so guard the empty-payload case.
+	t.Run("nil Err renders clean message", func(t *testing.T) {
+		if got, want := (&rx.DecodeError{}).Error(), "no decode error"; got != want {
+			t.Errorf("(&DecodeError{}).Error() = %q, want %q", got, want)
+		}
+	})
 }
 
 // TestUnmarshalArgErrorPrefixes verifies the argument-validation errors carry

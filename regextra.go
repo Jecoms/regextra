@@ -632,8 +632,14 @@ type ValidationError struct {
 }
 
 // Error implements the error interface. Validate prepends its own
-// `regextra.Validate:` prefix when wrapping.
+// `regextra.Validate:` prefix when wrapping. When Missing is empty (only
+// reachable by constructing the value directly — Validate never wraps an
+// empty set) it reports "no missing named groups" rather than a message with
+// a dangling separator.
 func (e *ValidationError) Error() string {
+	if len(e.Missing) == 0 {
+		return "no missing named groups"
+	}
 	return fmt.Sprintf("missing named groups: %s", strings.Join(e.Missing, ", "))
 }
 
