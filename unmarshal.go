@@ -65,9 +65,16 @@ func parseTime(value string) (time.Time, error) {
 type DecodeError struct {
 	// Field is the destination struct field name.
 	Field string
-	// Group is the capture group the value was read from. It is the field's
+	// Group is the capture group the value was read from: the field's
 	// `regex:"..."` tag name when set, otherwise the group resolved from the
-	// field name. Empty only when a field with a `default=` maps to no group.
+	// field name. It is populated on every DecodeError a caller can observe,
+	// though the two decode paths reach the unset case differently. The
+	// reflect path ([Unmarshal]/[UnmarshalAll]) falls back to the field name
+	// when no group matches, so Group is never empty. The typed path
+	// ([Decoder.One]/[Decoder.All]/[Decoder.Iter]) leaves Group empty for a
+	// default-only field that maps to no group, but such a field's default is
+	// validated at [Compile] and so cannot raise a runtime DecodeError — that
+	// empty case is therefore never returned.
 	Group string
 	// Value is the raw matched string (or substituted default) that failed to
 	// convert.
