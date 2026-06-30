@@ -53,6 +53,22 @@ gofmt -s -l .
 - Test edge cases (nil pointers, empty strings, no matches)
 - Add example tests for public APIs (they appear in godoc)
 
+#### One test/benchmark file per source file
+- Tests for `foo.go` live in `foo_test.go`; benchmarks live in
+  `foo_bench_test.go` (the `_bench_test.go` suffix sorts each benchmark file
+  next to its source and test). Route each `Test*`/`Benchmark*` to the sibling
+  file of the source it exercises, by function-name prefix (`TestUnmarshal*`,
+  `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
+  `decoder_*`; `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
+  `TestValidate*` → `regextra_*`).
+- **Do not add topical test files** (one per feature, bug fix, or issue). That
+  habit is what fragmented the suite; a new test belongs in the existing
+  sibling file, not a new one.
+- Two package-scoped exceptions exist: `bench_internal_test.go` lives in
+  `package regextra` (not `regextra_test`) so it can benchmark unexported code,
+  and `bench_sanity_test.go` guards the shared benchmark fixtures and so maps to
+  no single source file.
+
 #### Test the public contract, not internals
 - **Assert observable behavior through the exported API** (`Unmarshal`,
   `UnmarshalAll`, `Compile`/`Decoder`, etc.), never the internals of an
@@ -100,15 +116,30 @@ When designing new features, follow established stdlib patterns if using same na
 
 ## Project Structure
 
+The package is split into one source file per cohesive surface, with a sibling
+test file and (where present) a sibling benchmark file — see "One
+test/benchmark file per source file" above.
+
 ```
 regextra/
-├── main.go           # Core implementation; May be broken out into separate files in the future
-├── main_test.go      # Core implementation tests
-├── README.md         # Public API documentation
-├── CONTRIBUTING.md   # This file
-├── CHANGELOG.md      # Version history
-├── go.mod            # Module definition
-├── .golangci.yml     # Linter configuration
+├── regextra.go            # NamedGroups/AllNamedGroups, FindNamed/FindAllNamed, Replace, Validate
+├── regextra_test.go       # tests for regextra.go
+├── regextra_bench_test.go # benchmarks for regextra.go
+├── unmarshal.go           # Unmarshal / UnmarshalAll (reflect-based decode)
+├── unmarshal_test.go      # tests for unmarshal.go
+├── unmarshal_bench_test.go# benchmarks for unmarshal.go
+├── decoder.go             # Compile/MustCompile + Decoder[T] (One/All/Iter)
+├── decoder_test.go        # tests for decoder.go
+├── decoder_bench_test.go  # benchmarks for decoder.go
+├── bench_internal_test.go # package-internal benchmark (touches unexported code)
+├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
+├── README.md              # Public API documentation
+├── AGENTS.md              # AI-agent entry point (pointer to this guide)
+├── CLAUDE.md              # Claude Code entry point (points to AGENTS.md/this guide)
+├── CONTRIBUTING.md         # This file
+├── CHANGELOG.md           # Version history
+├── go.mod                 # Module definition
+├── .golangci.yml          # Linter configuration
 └── .github/
     └── workflows/
         ├── test.yml     # CI: tests, coverage, linting

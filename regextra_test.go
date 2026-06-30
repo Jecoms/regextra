@@ -516,3 +516,82 @@ func FuzzNamedGroups(f *testing.F) {
 // arbitrary group values. Pattern is one named group; target is constructed
 // from the fuzz input. Failure modes: panic, or success on a value that
 // strconv.ParseInt(value, 10, 64) would reject.
+
+// Regression tests for https://github.com/Jecoms/regextra/issues/105:
+// patterns that reuse a group name (legal in Go's regexp, e.g. across
+// alternation branches) were mishandled in both decode paths — the map
+// builders let a non-participating later occurrence clobber the real value
+// with "", and the Decoder read only SubexpIndex's first occurrence.
+
+func TestNamedGroups_duplicateNames(t *testing.T) {
+	re := regexp.MustCompile(`(?:x(?P<word>a)|y(?P<word>b))`)
+
+	t.Run("first alternation branch participates", func(t *testing.T) {
+		got := rx.NamedGroups(re, "xa")
+		if got["word"] != "a" {
+			t.Errorf(`got word=%q, want "a" (non-participating duplicate must not clobber)`, got["word"])
+		}
+	})
+
+	t.Run("second alternation branch participates", func(t *testing.T) {
+		got := rx.NamedGroups(re, "yb")
+		if got["word"] != "b" {
+			t.Errorf(`got word=%q, want "b"`, got["word"])
+		}
+	})
+
+	t.Run("sequential duplicates keep last-wins", func(t *testing.T) {
+		seq := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
+		got := rx.NamedGroups(seq, "hello world")
+		if got["word"] != "world" {
+			t.Errorf(`got word=%q, want "world" (last participating occurrence wins)`, got["word"])
+		}
+	})
+
+	t.Run("AllNamedGroups still preserves every occurrence", func(t *testing.T) {
+		got := rx.AllNamedGroups(re, "xa")
+		want := []string{"a", ""}
+		if len(got["word"]) != 2 || got["word"][0] != want[0] || got["word"][1] != want[1] {
+			t.Errorf("got word=%q, want %q", got["word"], want)
+		}
+	})
+}
+
+func TestFindNamed_duplicateNames(t *testing.T) {
+	re := regexp.MustCompile(`(?:x(?P<word>a)|y(?P<word>b))`)
+
+	if got, ok := rx.FindNamed(re, "yb", "word"); got != "b" || !ok {
+		t.Errorf(`FindNamed("yb","word") = (%q,%v), want ("b",true) — must read the participating branch, not SubexpIndex's first`, got, ok)
+	}
+	if got, ok := rx.FindNamed(re, "xa", "word"); got != "a" || !ok {
+		t.Errorf(`FindNamed("xa","word") = (%q,%v), want ("a",true)`, got, ok)
+	}
+	if got, ok := rx.FindNamed(re, "zz", "word"); ok {
+		t.Errorf(`FindNamed("zz","word") = (%q,%v), want ("",false) on no match`, got, ok)
+	}
+	if got, ok := rx.FindNamed(re, "yb", "missing"); ok {
+		t.Errorf(`FindNamed("yb","missing") = (%q,%v), want ("",false) for an undeclared group`, got, ok)
+	}
+}
+
+func TestFindAllNamed_duplicateNames(t *testing.T) {
+	re := regexp.MustCompile(`(?:x(?P<word>a)|y(?P<word>b))`)
+	got := rx.FindAllNamed(re, "xa yb", "word")
+	want := []string{"a", "b"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("FindAllNamed(%q) = %q, want %q (each match reads its participating branch)", "xa yb", got, want)
+	}
+}
+
+// NamedGroups still surfaces a declared-but-non-participating group as "" —
+// only the Unmarshal path omits it (the includeNonParticipating split).
+func TestNamedGroups_nonParticipatingStillPresent(t *testing.T) {
+	re := regexp.MustCompile(`(?:x(?P<a>1)|y(?P<b>2))`)
+	got := rx.NamedGroups(re, "y2")
+	if v, ok := got["a"]; !ok || v != "" {
+		t.Errorf(`NamedGroups("y2")["a"] = (%q,%v), want ("",true) — declared but did not participate`, v, ok)
+	}
+	if got["b"] != "2" {
+		t.Errorf(`NamedGroups("y2")["b"] = %q, want "2"`, got["b"])
+	}
+}
