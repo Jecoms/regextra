@@ -23,7 +23,7 @@ go get github.com/jecoms/regextra@latest
 - Minor releases (`v1.x.0`) add features.
 - Patch releases (`v1.x.y`) are fixes only.
 
-The audit that pinned every public surface as v1 contract lives in [docs/v1-readiness.md](./docs/v1-readiness.md). The forward look is in [ROADMAP.md](./ROADMAP.md).
+The forward look is tracked in the [issue tracker](https://github.com/Jecoms/regextra/issues).
 
 **What counts as breaking**
 
@@ -263,7 +263,7 @@ type LogLine struct {
 **Forward-compat rules (v1 contract):**
 
 - **Unknown `key=value` pairs are preserved, not rejected.** Adding a new option key in a future minor release is not a breaking change. Don't rely on the parser rejecting unknown keys — pin a minor version range if you need a specific recognized set.
-- **Lone tokens (no `=`) are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (e.g. `required` — see [ROADMAP.md](./ROADMAP.md)); a later minor may start recognizing specific lone tokens. Don't rely on lone tokens remaining inert.
+- **Lone tokens (no `=`) are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (e.g. `required` — see [#148](https://github.com/Jecoms/regextra/issues/148)); a later minor may start recognizing specific lone tokens. Don't rely on lone tokens remaining inert.
 
 See the package doc's **Tag grammar** section on [pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra) for the canonical statement.
 
