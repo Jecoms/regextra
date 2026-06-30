@@ -34,3 +34,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Personal agent/assistant workflow files (CONTRIBUTING.md is the source of truth)
+AGENTS.md
+CLAUDE.md
