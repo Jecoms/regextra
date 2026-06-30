@@ -290,6 +290,150 @@ func ExampleAllNamedGroups() {
 	// Output: word: [one two three]
 }
 
+func TestNamedGroupsPerMatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		want    []map[string]string
+	}{
+		{
+			name:    "multiple matches, one map per match",
+			pattern: `(?P<key>\w+)=(?P<value>\w+)`,
+			target:  "a=1 b=2 c=3",
+			want: []map[string]string{
+				{"key": "a", "value": "1"},
+				{"key": "b", "value": "2"},
+				{"key": "c", "value": "3"},
+			},
+		},
+		{
+			name:    "single match",
+			pattern: `(?P<name>\w+) (?P<age>\d+)`,
+			target:  "Alice 30",
+			want: []map[string]string{
+				{"name": "Alice", "age": "30"},
+			},
+		},
+		{
+			name:    "no match returns empty non-nil slice",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "all lowercase",
+			want:    []map[string]string{},
+		},
+		{
+			// Duplicate name in one match: last participating occurrence wins,
+			// mirroring NamedGroups per-match semantics.
+			name:    "duplicate group name, last participating wins per match",
+			pattern: `(?P<word>\w+) (?P<word>\w+)`,
+			target:  "hello world foo bar",
+			want: []map[string]string{
+				{"word": "world"},
+				{"word": "bar"},
+			},
+		},
+		{
+			// Optional group that does not participate in a given match is still
+			// present, mapped to "" (includeNonParticipating=true).
+			name:    "non-participating optional group present as empty string",
+			pattern: `(?P<a>\w+)(?P<b>!)?`,
+			target:  "x! y",
+			want: []map[string]string{
+				{"a": "x", "b": "!"},
+				{"a": "y", "b": ""},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := rx.NamedGroupsPerMatch(re, tt.target)
+			if got == nil {
+				t.Fatalf("NamedGroupsPerMatch() = nil, want non-nil")
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NamedGroupsPerMatch() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNamedGroupsPerMatchSeq(t *testing.T) {
+	t.Run("yields one map per match in order", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+		want := []map[string]string{
+			{"key": "a", "value": "1"},
+			{"key": "b", "value": "2"},
+		}
+		var got []map[string]string
+		for m := range rx.NamedGroupsPerMatchSeq(re, "a=1 b=2") {
+			got = append(got, m)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("NamedGroupsPerMatchSeq() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("no match yields zero times", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		count := 0
+		for range rx.NamedGroupsPerMatchSeq(re, "all lowercase") {
+			count++
+		}
+		if count != 0 {
+			t.Errorf("iterations = %d, want 0", count)
+		}
+	})
+
+	t.Run("break stops iteration early", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<word>\w+)`)
+		var got []string
+		for m := range rx.NamedGroupsPerMatchSeq(re, "alpha beta gamma") {
+			got = append(got, m["word"])
+			if len(got) == 2 {
+				break
+			}
+		}
+		want := []string{"alpha", "beta"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("after break, got = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("matches slice form", func(t *testing.T) {
+		re := regexp.MustCompile(`(?P<a>\w+)(?P<b>!)?`)
+		target := "x! y z!"
+		var seq []map[string]string
+		for m := range rx.NamedGroupsPerMatchSeq(re, target) {
+			seq = append(seq, m)
+		}
+		if !reflect.DeepEqual(seq, rx.NamedGroupsPerMatch(re, target)) {
+			t.Errorf("Seq form = %v, want parity with slice form %v", seq, rx.NamedGroupsPerMatch(re, target))
+		}
+	})
+}
+
+func ExampleNamedGroupsPerMatch() {
+	re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+	all := rx.NamedGroupsPerMatch(re, "a=1 b=2")
+	for _, m := range all {
+		fmt.Printf("%s=%s\n", m["key"], m["value"])
+	}
+	// Output:
+	// a=1
+	// b=2
+}
+
+func ExampleNamedGroupsPerMatchSeq() {
+	re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+	for m := range rx.NamedGroupsPerMatchSeq(re, "a=1 b=2") {
+		fmt.Printf("%s=%s\n", m["key"], m["value"])
+	}
+	// Output:
+	// a=1
+	// b=2
+}
+
 func TestReplace(t *testing.T) {
 	tests := []struct {
 		name    string

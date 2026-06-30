@@ -122,7 +122,7 @@ groups := regextra.NamedGroups(re, "Date: 2025-10-04")
 
 Operates on a **single match** and returns every value of every named capture group, keyed by group name. Each value is a slice because Go's `regexp` allows the same group name to appear more than once in a pattern — `AllNamedGroups` preserves every occurrence in left-to-right order. Groups that appear once still get a one-element slice.
 
-The leading "All" refers to **all named groups in one match** — not to all matches across the target. Use `FindAllNamed` to collect a single named group across every match. There is currently no function that returns every named group across every match (`[]map[string]string`); the unmarshal path (`UnmarshalAll`, `Decoder.All`, `Decoder.Iter`) is the typed equivalent.
+The leading "All" refers to **all named groups in one match** — not to all matches across the target. Use `FindAllNamed` to collect a single named group across every match, or `NamedGroupsPerMatch` to collect every named group across every match as one map per match (`[]map[string]string`); the unmarshal path (`UnmarshalAll`, `Decoder.All`, `Decoder.Iter`) is the typed equivalent.
 
 Returns an empty map if no match is found.
 
@@ -136,6 +136,31 @@ allGroups := regextra.AllNamedGroups(re, "one two three")
 re = regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 allGroups = regextra.AllNamedGroups(re, "Alice 30")
 // allGroups = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
+```
+
+### `NamedGroupsPerMatch(re *regexp.Regexp, target string) []map[string]string`
+
+The every-match counterpart to `NamedGroups`: returns one map of named-group values per match of `re` in `target`, in match order. Each map follows the same per-match semantics as `NamedGroups` — every declared group is present, a group that did not participate in that match is mapped to `""`, and a reused group name resolves to the last participating occurrence in that match.
+
+Returns an empty (non-nil) slice if there are no matches. For the typed equivalent that decodes each match into a struct, use `UnmarshalAll` / `Decoder.All`.
+
+```go
+re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+all := regextra.NamedGroupsPerMatch(re, "a=1 b=2")
+// all = []map[string]string{{"key": "a", "value": "1"}, {"key": "b", "value": "2"}}
+```
+
+### `NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[string]string]`
+
+The lazy, range-over-func (Go 1.23+) form of `NamedGroupsPerMatch`: yields one named-group map per match, in match order, without building the intermediate slice. Stopping the range early (`break`) stops the iteration. On no match, the iterator yields zero times. For the typed streaming equivalent, use `Decoder.Iter`.
+
+```go
+re := regexp.MustCompile(`(?P<key>\w+)=(?P<value>\w+)`)
+for m := range regextra.NamedGroupsPerMatchSeq(re, "a=1 b=2") {
+    fmt.Println(m["key"], m["value"])
+}
+// a 1
+// b 2
 ```
 
 ### `Replace(re *regexp.Regexp, target string, replacements map[string]string) string`
