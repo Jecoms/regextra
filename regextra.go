@@ -163,7 +163,8 @@ Two forward-compatibility rules in the tag parser are part of the v1 contract:
     is a no-op — the `foo` token is dropped, so the field resolves exactly as
     `regex:"name"` would. This
     slot is reserved for future flag-style options (e.g. `required`; see
-    ROADMAP.md). A later minor release may start recognizing specific lone
+    the issue tracker at https://github.com/Jecoms/regextra/issues). A
+    later minor release may start recognizing specific lone
     tokens and giving them meaning, so adding `regex:"name,foo"` today is a
     no-op but may stop being one. Callers must not rely on lone tokens
     remaining inert.
@@ -176,8 +177,8 @@ grammar) or a recognized flag token (claiming a previously-ignored slot).
 
 regextra is at v1 and follows strict SemVer. Patch releases are fixes only.
 Minor releases add features without breaking changes. Breaking changes ship
-in the next major version, never in a minor or patch. See ROADMAP.md and the
-README's Stability section for the precise contract, including what does and
+in the next major version, never in a minor or patch. See the README's
+Stability section for the precise contract, including what does and
 does not count as breaking.
 
 # More
