@@ -517,6 +517,25 @@ func TestReplace(t *testing.T) {
 			repl:    map[string]string{"inner": "X"},
 			want:    "X@example.com",
 		},
+		{
+			// A named group that does not participate in the match (the
+			// optional group is absent) is silently skipped; the rest of the
+			// match still substitutes.
+			name:    "non-participating optional group is skipped",
+			pattern: `(?P<num>\d+)(?P<sign>%)?`,
+			target:  "value 50 end",
+			repl:    map[string]string{"num": "N", "sign": "S"},
+			want:    "value N end",
+		},
+		{
+			// Unnamed groups mixed with named groups: only the named group is
+			// substituted; the unnamed group's text passes through untouched.
+			name:    "unnamed group mixed with named is left untouched",
+			pattern: `(\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2",
+			repl:    map[string]string{"val": "?"},
+			want:    "a=? b=?",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
