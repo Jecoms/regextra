@@ -1954,6 +1954,45 @@ func TestUnmarshalDecodeError(t *testing.T) {
 		}
 	})
 
+	// The two cases below exercise the default-only fallback in resolveGroupName
+	// (groupIndexes empty, so the name comes from re-parsing the tag rather than
+	// re.SubexpNames). They pin Group for both shapes the fallback can produce.
+	t.Run("default-only untagged field: Group is empty", func(t *testing.T) {
+		type Record struct {
+			// Empty tag name and no group folds to "Missing", so the field maps
+			// to no declared group; the bad default fails int conversion.
+			Missing int `regex:",default=notanumber"`
+		}
+		reD := regexp.MustCompile(`(?P<other>\w+)`)
+		var r Record
+		err := rx.Unmarshal(reD, "x", &r)
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %v is not a *DecodeError", err)
+		}
+		if de.Field != "Missing" || de.Group != "" || de.Value != "notanumber" {
+			t.Errorf("DecodeError{Field:%q, Group:%q, Value:%q}, want {Missing, \"\", notanumber}", de.Field, de.Group, de.Value)
+		}
+	})
+
+	t.Run("default-only field tagged to an undeclared group: Group is the tag name", func(t *testing.T) {
+		type Record struct {
+			// "missing" is not a declared group, so groupIndexes is empty and the
+			// default fires; the bad default fails int conversion.
+			N int `regex:"missing,default=notanumber"`
+		}
+		reD := regexp.MustCompile(`(?P<other>\w+)`)
+		var r Record
+		err := rx.Unmarshal(reD, "x", &r)
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %v is not a *DecodeError", err)
+		}
+		if de.Field != "N" || de.Group != "missing" || de.Value != "notanumber" {
+			t.Errorf("DecodeError{Field:%q, Group:%q, Value:%q}, want {N, missing, notanumber}", de.Field, de.Group, de.Value)
+		}
+	})
+
 	t.Run("UnmarshalAll surfaces *DecodeError with match prefix", func(t *testing.T) {
 		var people []Person
 		err := rx.UnmarshalAll(re, "12 bad", &people)
