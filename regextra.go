@@ -153,8 +153,8 @@ Two forward-compatibility rules in [parseFieldTag] are part of the v1 contract:
     recognized set.
 
   - Lone tokens (no `=`) are silently ignored. Today, `regex:"name,foo"`
-    parses as (name="name", opts={}) — the `foo` token is dropped, leaving
-    an empty (non-nil) opts map. This
+    is a no-op — the `foo` token is dropped, so the field resolves exactly as
+    `regex:"name"` would. This
     slot is reserved for future flag-style options (e.g. `required`; see
     ROADMAP.md). A later minor release may start recognizing specific lone
     tokens and giving them meaning, so adding `regex:"name,foo"` today is a
