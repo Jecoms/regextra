@@ -44,6 +44,20 @@ go vet ./...
 gofmt -s -l .
 ```
 
+#### Optional: personal agent/assistant files
+
+`AGENTS.md` and `CLAUDE.md` are gitignored so you can keep personal
+agent/assistant workflow notes (e.g. a preferred VCS like `jj`) without
+committing them. To start from the tracked templates:
+
+```bash
+cp AGENTS.md.example AGENTS.md
+cp CLAUDE.md.example CLAUDE.md
+```
+
+These copies stay local; CONTRIBUTING.md remains the source of truth for
+submitting code changes.
+
 ## Code Standards
 
 ### Testing
@@ -142,6 +156,8 @@ regextra/
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)
 ├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
 ├── README.md              # Public API documentation
+├── AGENTS.md.example      # Template for a personal (gitignored) agent guide
+├── CLAUDE.md.example      # Template for a personal (gitignored) Claude Code guide
 ├── CONTRIBUTING.md         # This file
 ├── CHANGELOG.md           # Version history
 ├── go.mod                 # Module definition
