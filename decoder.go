@@ -46,6 +46,11 @@ type Decoder[T any] struct {
 type fieldDecoder struct {
 	// fieldIndex is the index into T's struct fields (StructField.Index[0]).
 	fieldIndex int
+	// groupName is the resolved capture-group name this field maps to: the
+	// field's `regex:"..."` tag name when set, otherwise the group resolved
+	// from the field name. Empty when the field maps to no group (default-only).
+	// Retained past Compile so the decode path can populate DecodeError.Group.
+	groupName string
 	// groupIndexes holds the submatch index of every occurrence of the
 	// field's group name, in declaration order. Go's regexp allows the same
 	// group name to appear more than once in a pattern (e.g. across
@@ -164,6 +169,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 
 		d.fields = append(d.fields, fieldDecoder{
 			fieldIndex:   i,
+			groupName:    groupName,
 			groupIndexes: groupIdxs,
 			opts:         opts,
 		})
@@ -218,7 +224,7 @@ func (d *Decoder[T]) One(target string) (T, error) {
 	var v T
 	rv := reflect.ValueOf(&v).Elem()
 	if err := d.decode(rv, target, matches); err != nil {
-		return v, err
+		return v, fmt.Errorf("regextra.Decoder.One: %w", err)
 	}
 	return v, nil
 }
@@ -271,6 +277,9 @@ func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {
 			var v T
 			rv := reflect.ValueOf(&v).Elem()
 			err := d.decode(rv, target, matches)
+			if err != nil {
+				err = fmt.Errorf("regextra.Decoder.Iter: %w", err)
+			}
 			if !yield(v, err) {
 				return
 			}
@@ -320,8 +329,13 @@ func (d *Decoder[T]) decode(rv reflect.Value, target string, matches []int) erro
 		}
 		field := rv.Field(fd.fieldIndex)
 		if err := setFieldValue(field, value, fd.opts); err != nil {
-			fieldName := rv.Type().Field(fd.fieldIndex).Name
-			return fmt.Errorf("field %s: %w", fieldName, err)
+			return &DecodeError{
+				Field: rv.Type().Field(fd.fieldIndex).Name,
+				Group: fd.groupName,
+				Value: value,
+				Type:  field.Type().String(),
+				Err:   err,
+			}
 		}
 	}
 	return nil

@@ -2,6 +2,7 @@ package regextra_test
 
 import (
 	"encoding"
+	"errors"
 	"fmt"
 	rx "github.com/jecoms/regextra"
 	"log/slog"
@@ -1798,5 +1799,94 @@ func TestUnmarshal_TimeBeatsTextUnmarshaler(t *testing.T) {
 	}
 	if gotL.TS.Year() != 2024 || gotL.TS.Month() != time.January || gotL.TS.Day() != 15 {
 		t.Errorf("TS = %v, want 2024-01-15 via layout", gotL.TS)
+	}
+}
+
+// TestUnmarshalDecodeError verifies that a conversion failure on the reflect
+// path surfaces an errors.As-able *DecodeError with the field, group, value,
+// and type populated, wrapped under the entrypoint's regextra.<Entrypoint>:
+// prefix. Per the Stability contract the prefix wording is asserted loosely.
+func TestUnmarshalDecodeError(t *testing.T) {
+	type Person struct {
+		Age int `regex:"age"`
+	}
+	re := regexp.MustCompile(`(?P<age>\w+)`)
+
+	t.Run("Unmarshal surfaces *DecodeError", func(t *testing.T) {
+		var p Person
+		err := rx.Unmarshal(re, "notanumber", &p)
+		if err == nil {
+			t.Fatal("Unmarshal returned nil, want a conversion error")
+		}
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %q is not a *DecodeError", err)
+		}
+		if de.Field != "Age" {
+			t.Errorf("DecodeError.Field = %q, want %q", de.Field, "Age")
+		}
+		if de.Group != "age" {
+			t.Errorf("DecodeError.Group = %q, want %q", de.Group, "age")
+		}
+		if de.Value != "notanumber" {
+			t.Errorf("DecodeError.Value = %q, want %q", de.Value, "notanumber")
+		}
+		if de.Type != "int" {
+			t.Errorf("DecodeError.Type = %q, want %q", de.Type, "int")
+		}
+		if de.Unwrap() == nil {
+			t.Error("DecodeError.Unwrap() = nil, want the underlying conversion cause")
+		}
+		if !strings.HasPrefix(err.Error(), "regextra.Unmarshal:") {
+			t.Errorf("error = %q, want a regextra.Unmarshal: prefix", err.Error())
+		}
+	})
+
+	t.Run("group resolves from field name when untagged", func(t *testing.T) {
+		type Record struct {
+			Count int // no tag: resolves to the "count" group by name fold
+		}
+		reC := regexp.MustCompile(`(?P<count>\w+)`)
+		var r Record
+		err := rx.Unmarshal(reC, "nope", &r)
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %v is not a *DecodeError", err)
+		}
+		if de.Field != "Count" || de.Group != "count" {
+			t.Errorf("DecodeError{Field:%q, Group:%q}, want {Count, count}", de.Field, de.Group)
+		}
+	})
+
+	t.Run("UnmarshalAll surfaces *DecodeError with match prefix", func(t *testing.T) {
+		var people []Person
+		err := rx.UnmarshalAll(re, "12 bad", &people)
+		if err == nil {
+			t.Fatal("UnmarshalAll returned nil, want a conversion error")
+		}
+		var de *rx.DecodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("error %q is not a *DecodeError", err)
+		}
+		if de.Field != "Age" || de.Value != "bad" || de.Type != "int" {
+			t.Errorf("DecodeError = %+v, want Field=Age Value=bad Type=int", de)
+		}
+		if !strings.HasPrefix(err.Error(), "regextra.UnmarshalAll:") {
+			t.Errorf("error = %q, want a regextra.UnmarshalAll: prefix", err.Error())
+		}
+	})
+}
+
+// TestUnmarshalArgErrorPrefixes verifies the argument-validation errors carry
+// the standardized regextra.<Entrypoint>: prefix.
+func TestUnmarshalArgErrorPrefixes(t *testing.T) {
+	re := regexp.MustCompile(`(?P<age>\d+)`)
+	if err := rx.Unmarshal(re, "30", nil); err == nil ||
+		!strings.HasPrefix(err.Error(), "regextra.Unmarshal:") {
+		t.Errorf("Unmarshal(nil) error = %v, want regextra.Unmarshal: prefix", err)
+	}
+	if err := rx.UnmarshalAll(re, "30", nil); err == nil ||
+		!strings.HasPrefix(err.Error(), "regextra.UnmarshalAll:") {
+		t.Errorf("UnmarshalAll(nil) error = %v, want regextra.UnmarshalAll: prefix", err)
 	}
 }

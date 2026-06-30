@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DecodeError` typed error for conversion failures.** When a matched capture-group value can't be converted to its destination field type, `Unmarshal`, `UnmarshalAll`, and `Decoder.One`/`All`/`Iter` now all return an `errors.As`-able `*regextra.DecodeError` carrying `Field`, `Group`, `Value`, `Type` (rendered), and the wrapped `Err` (reachable via `Unwrap`). Both the reflect (`Unmarshal`) and typed (`Decoder`) paths construct the same type, so callers can branch on a failed field without parsing `err.Error()`. Additive, non-breaking. ([#111](https://github.com/Jecoms/regextra/issues/111))
 - **`NamedGroupsPerMatch(re *regexp.Regexp, target string) []map[string]string`** and **`NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[string]string]`** — the every-match counterparts to `NamedGroups`, returning one named-group map per match (slice form) or yielding them lazily (range-over-func form). Each per-match map follows `NamedGroups` semantics: every declared group present, non-participating groups mapped to `""`, and reused names resolved to the last participating occurrence in that match. Fills the gap the `AllNamedGroups` godoc previously disclaimed ("no current function that returns every named group across every match"). Names deliberately avoid the overloaded "All" token. Additive, non-breaking. ([#118](https://github.com/Jecoms/regextra/issues/118))
+
+### Changed
+
+- **Error-message prefixes standardized on `regextra.<Entrypoint>:`.** Constructed and contextual errors now carry the method-qualified prefix already used by `Compile`/`Validate`/`Decoder.All`: `Unmarshal`/`UnmarshalAll`'s argument-validation errors moved from the bare `regextra:` prefix, and `Decoder.One`/`Iter` conversion failures gained the previously-absent prefix. Package-level sentinels (`ErrNoMatch`) keep the bare `regextra:` prefix since a sentinel isn't bound to one entrypoint. Message wording is non-breaking per [README §Stability](./README.md#stability) — compare sentinels/types, not strings. ([#111](https://github.com/Jecoms/regextra/issues/111))
 
 ### Fixed
 
