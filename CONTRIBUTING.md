@@ -47,16 +47,17 @@ gofmt -s -l .
 #### Optional: personal agent/assistant files
 
 `AGENTS.md` and `CLAUDE.md` are gitignored so you can keep personal
-agent/assistant workflow notes (e.g. a preferred VCS like `jj`) without
-committing them. To start from the tracked templates:
+agent/assistant workflow notes without committing them. They should defer
+to CONTRIBUTING.md for repo code changes/expectations. To start from the
+tracked templates depending on your agent/harness:
 
-```bash
+```sh
 cp AGENTS.md.example AGENTS.md
+```
+or
+```sh
 cp CLAUDE.md.example CLAUDE.md
 ```
-
-These copies stay local; CONTRIBUTING.md remains the source of truth for
-submitting code changes.
 
 ## Code Standards
 
