@@ -146,7 +146,7 @@ func (e *RequiredGroupError) Error() string {
 // Field mapping rules:
 //   - First checks the `regex:"groupname"` struct tag if provided (highest priority)
 //   - Falls back to exact field name match with capture group name
-//   - Falls back to case-insensitive field name match
+//   - Falls back to case-insensitive field name match (Unicode simple case folding)
 //   - Supports type conversion for string, bool, all int/uint widths,
 //     float32/float64, time.Time, time.Duration, and single-level pointers
 //     to any of these; types implementing [RegexUnmarshaler] convert themselves

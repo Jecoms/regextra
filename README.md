@@ -108,7 +108,7 @@ For a single match, prefer `FindNamed`. To pull every named group from one match
 
 ### `NamedGroups(re *regexp.Regexp, target string) map[string]string`
 
-Extract all named capture groups as a map. If a group name appears multiple times, only the last match is returned.
+Extract all named capture groups as a map. If a group name appears multiple times (e.g. across alternation branches), the value of the last occurrence that participated in the match wins; a non-participating occurrence never overwrites a participating one.
 
 Returns an empty map if no match is found.
 
@@ -227,12 +227,12 @@ if errors.As(err, &ve) {
 
 Unmarshal regex matches into a struct with automatic type conversion. Similar to `json.Unmarshal`, but for regex patterns.
 
-**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`, `time.Time`, `time.Duration`. Pointer-to-any-of-the-above is also supported — nil pointers are allocated, non-nil pointers are reused (pointee overwritten). For `time.Time`, several common layouts are tried (RFC3339, RFC3339Nano, `2006-01-02 15:04:05`, `2006-01-02`, `15:04:05`); `time.Duration` is parsed via `time.ParseDuration`. Any field whose type (or pointer-to-type) implements [`encoding.TextUnmarshaler`](https://pkg.go.dev/encoding#TextUnmarshaler) is also supported out of the box — e.g. `netip.Addr`, `math/big.Int`, `log/slog.Level`, `github.com/google/uuid.UUID` — by calling its `UnmarshalText` with the matched value. For caller-defined types, implement [`RegexUnmarshaler`](#regexunmarshaler-interface).
+**Supported field types:** `string`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`, `bool`, `time.Time`, `time.Duration`. Pointer-to-any-of-the-above is also supported — nil pointers are allocated, non-nil pointers are reused (pointee overwritten). For `time.Time`, several common layouts are tried in order (RFC3339Nano, RFC3339, `2006-01-02 15:04:05`, `2006-01-02`, `15:04:05`); `time.Duration` is parsed via `time.ParseDuration`. Any field whose type (or pointer-to-type) implements [`encoding.TextUnmarshaler`](https://pkg.go.dev/encoding#TextUnmarshaler) is also supported out of the box — e.g. `netip.Addr`, `math/big.Int`, `log/slog.Level`, `github.com/google/uuid.UUID` — by calling its `UnmarshalText` with the matched value. For caller-defined types, implement [`RegexUnmarshaler`](#regexunmarshaler-interface).
 
 **Field mapping priority:**
 1. Struct tag `regex:"groupname"` if provided (highest priority)
 2. Exact field name match with capture group name
-3. Case-insensitive field name match
+3. Case-insensitive field name match (Unicode simple case folding)
 - Unexported fields are ignored
 
 Returns an error if the target is not a pointer to a struct, or if type conversion fails.
@@ -379,7 +379,7 @@ people, _ := personDecoder.All("Alice is 30 and Bob is 25")
 // people = []Person{{"Alice", 30}, {"Bob", 25}}
 ```
 
-**vs `Unmarshal`:** the same simple-struct shape benchmarks at **~270 ns/op (3 allocs)** via `Decoder` versus **~500 ns/op (6 allocs)** via `Unmarshal` on Apple M4 — roughly half the time and half the allocations. Use `Decoder` when you'll decode the same shape many times (log parsers, config readers, request handlers); use `Unmarshal` for one-shot extraction.
+**vs `Unmarshal`:** the same simple-struct shape benchmarks at **~255 ns/op (2 allocs)** via `Decoder` versus **~540 ns/op (11 allocs)** via `Unmarshal` on Apple M4 — roughly half the time and far fewer allocations (measurements are hardware-dependent, not a guarantee). Use `Decoder` when you'll decode the same shape many times (log parsers, config readers, request handlers); use `Unmarshal` for one-shot extraction.
 
 **Compile-time validation is strict.** `Compile` returns an error (or `MustCompile` panics) if:
 - The pattern is not a valid regex
@@ -423,7 +423,7 @@ if errors.As(err, &rge) {
 }
 ```
 
-Constructed errors are prefixed with the entrypoint that produced them (`regextra.Unmarshal:`, `regextra.Decoder.One:`, …); the bare `regextra:` prefix is reserved for package-level sentinels like `ErrNoMatch`, `ErrInvalidPattern`, and `ErrInvalidStruct`. Treat these prefixes as informational — compare against the sentinel or the `*DecodeError` type, not the string.
+Constructed errors are prefixed with the entrypoint that produced them (`regextra.Unmarshal:`, `regextra.Decoder.One:`, …); the bare `regextra:` prefix is reserved for package-level sentinels like `ErrNoMatch`, `ErrInvalidPattern`, and `ErrInvalidStruct`. One intended exception: the construction-time errors from `Compile` / `MustCompile` and `Decoder.Encoder()` carry the bare `regextra:` prefix rather than a `regextra.Compile:` / `regextra.Decoder.Encoder:` entrypoint prefix, because they wrap the `ErrInvalidPattern` / `ErrInvalidStruct` / `ErrNotInvertible` sentinels directly — so a `regextra:`-prefixed message there is by design, not a missing prefix. Treat these prefixes as informational — compare against the sentinel or the `*DecodeError` type, not the string.
 
 **Streaming with `Decoder.Iter`:**
 
@@ -439,7 +439,7 @@ for v, err := range personDecoder.Iter(input) {
 }
 ```
 
-`Iter` returns an `iter.Seq2[T, error]` (Go 1.23+ range-over-func). Use it for streaming-style consumption (log parsers, scrapers) where you don't want to allocate the full slice up-front. **~37% faster and ~50% fewer allocations** than `UnmarshalAll` on a 100-line corpus, since Iter skips the slice allocation entirely. Match-finding still happens in one regex call (Go's stdlib doesn't expose a streaming-find API), but the per-match decode work IS lazy — `break` in the range body avoids decoding the remaining matches.
+`Iter` returns an `iter.Seq2[T, error]` (Go 1.23+ range-over-func). Use it for streaming-style consumption (log parsers, scrapers) where you don't want to materialize the full result slice up-front. On a full 100-line corpus its throughput is roughly comparable to `UnmarshalAll` (≈28 µs/op, ~205 allocs/op vs ≈26 µs/op, ~114 allocs/op on Apple M4 — hardware-dependent, not a guarantee); `Iter`'s win is streaming, not raw speed. It skips allocating the full result slice (lower peak memory on large inputs) and decodes lazily. Match-finding still happens in one regex call (Go's stdlib doesn't expose a streaming-find API), but the per-match decode work IS lazy — `break` in the range body avoids decoding the remaining matches.
 
 **Accessors.** A `Decoder` exposes the pattern it was compiled from, so you don't have to keep a copy alongside it:
 

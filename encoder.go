@@ -42,7 +42,7 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 //   - A named capture group `(?P<name>…)` becomes a field substitution: name
 //     resolves to a struct field with the same rules [Decoder] uses — the field's
 //     `regex:"name"` tag matched exactly, otherwise the field's own name matched
-//     exactly then case-insensitively via Unicode simple-fold; a `regex:"-"` field
+//     exactly then case-insensitively via Unicode simple case folding; a `regex:"-"` field
 //     is excluded. The group's sub-pattern is discarded — the field's value fills
 //     the span.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
@@ -148,7 +148,7 @@ type EncodeError struct {
 	// Group is the capture-group name the field resolved from: the field's
 	// `regex:"..."` tag name when set, otherwise the declared group whose name
 	// matches the field name — which may differ from the field name in case when
-	// the two matched via Unicode simple-fold. Mirrors [DecodeError].Group.
+	// the two matched via Unicode simple case folding. Mirrors [DecodeError].Group.
 	Group string
 	// Type is the source field's type, rendered (e.g. "int", "time.Time").
 	Type string
