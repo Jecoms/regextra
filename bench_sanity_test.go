@@ -25,6 +25,21 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	t.Run("Validate", checkValidateFixtures)
 	t.Run("Unmarshal", checkUnmarshalFixtures)
 	t.Run("UnmarshalAll/Decoder", checkDecoderFixtures)
+	t.Run("Encoder", checkEncoderFixtures)
+}
+
+// Encoder: the three Encode fixtures render the expected strings, so the
+// BenchmarkEncode cases measure a real encode rather than an error path.
+func checkEncoderFixtures(t *testing.T) {
+	if got, err := benchEncSimpleEncoder.Encode(benchEncSimpleVal); err != nil || got != "Alice is 30 true" {
+		t.Errorf("Encode simple = (%q, %v), want (%q, nil)", got, err, "Alice is 30 true")
+	}
+	if got, err := benchEncTimeEncoder.Encode(benchEncTimeVal); err != nil || got != "2024-03-02T15:04:05Z" {
+		t.Errorf("Encode withTime = (%q, %v), want RFC3339", got, err)
+	}
+	if got, err := benchEncWideEncoder.Encode(benchEncWideVal); err != nil || got != "a b c d e f g h i j" {
+		t.Errorf("Encode manyFields = (%q, %v), want %q", got, err, "a b c d e f g h i j")
+	}
 }
 
 // FindNamed: match, undeclared group, and no-match shapes.

@@ -455,6 +455,62 @@ dec.Regexp().FindAllString("Alice is 30 and Bob is 25", -1)
 
 `Decoder` instances are safe for concurrent use.
 
+### `(d *Decoder[T]) Encoder() (*Encoder[T], error)`
+
+The typed inverse of `Decoder`, **derived from the decoder's own compiled pattern** — write the pattern once and get the encoder for free, with no separate template to keep in sync. `Encode` followed by a `Decoder.One` / `Unmarshal` on the same pattern round-trips the original struct.
+
+`Encoder()` parses the decoder's pattern with `regexp/syntax` and inverts the **invertible subset** of the grammar into an ordered encode plan:
+
+- **Literal text** is emitted verbatim (regexp escapes like `\.` are already decoded by the parser).
+- **Named capture groups** `(?P<name>…)` become field substitutions: `name` resolves to a struct field with the same rules `Decoder` uses (the field's `regex:"name"` tag if present, otherwise the field's own name, matched case-insensitively; a `regex:"-"` field is excluded). The group's sub-pattern is discarded — the field's value fills the span.
+- **Anchors and zero-width assertions** (`^`, `$`, `\A`, `\z`, `\b`, …) match no text and are dropped.
+- An **unnamed group** whose body is pure literal text is treated as that literal.
+
+```go
+type Person struct {
+    Name string `regex:"name"`
+    Age  int    `regex:"age"`
+}
+
+dec := regextra.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+enc, _ := dec.Encoder()
+
+s, _ := enc.Encode(Person{Name: "Alice", Age: 30})   // "Alice is 30"
+back, _ := dec.One(s)                                 // Person{Name: "Alice", Age: 30}
+```
+
+**Non-invertible patterns fail fast.** Any construct with no single string to emit — an alternation (`|`), a quantifier (`*`, `+`, `?`, `{n,m}`), a character class (`[...]`), an any-character wildcard (`.`), or an unnamed group with non-literal content — appearing **outside** a named capture group makes the pattern non-invertible, and `Encoder()` returns an error wrapping `regextra.ErrNotInvertible` that names the offending construct. (Inside a named capture such constructs are fine: the field's value fills the group.)
+
+**Supported field types:** same set as `Unmarshal` — `string`, all int/uint/float widths, `bool`, `time.Time`, `time.Duration`, and single-level pointers to any of these. `time.Time` encodes as RFC3339Nano by default (the first layout `Decoder` tries, so the output re-parses and sub-second precision survives), or the `layout=` layout when tagged. Any type implementing [`encoding.TextMarshaler`](https://pkg.go.dev/encoding#TextMarshaler) (e.g. `netip.Addr`, `uuid.UUID`) is encoded via `MarshalText`. For caller-defined types, implement `RegexMarshaler` (below).
+
+**Construction-time validation is strict**, mirroring `Compile`: `Encoder()` returns an error if the pattern is not invertible (above), a named group maps to no exported/eligible field, or a mapped field's type can't be encoded (the latter two wrap `regextra.ErrInvalidStruct`). A successful `Encoder()` can only fail at `Encode` time on a runtime value error (a custom marshaler returning an error, or a nil pointer field, which has no string form) — surfaced as a `*regextra.EncodeError` (the encode-side mirror of `DecodeError`).
+
+**Round-trip contract.** `Encode(v)` re-decodes to `v` when each encoded value re-matches the sub-pattern of the group it fills — the caller owns that pairing by writing value-appropriate sub-patterns (a captured word wants `\S+`, not `.*`). The `default=` tag option does not affect encoding (it is a decode-side substitution); `Encode` always emits the field's actual value. Values that collide with a surrounding literal delimiter, or two adjacent captures with no literal between them, have no unambiguous decode boundary and are out of scope. (A future option is to re-match each encoded value against its group's sub-pattern at `Encode` time; that is deliberately not done today.)
+
+`Encoder` instances are safe for concurrent use.
+
+### `RegexMarshaler` interface
+
+The encode-side mirror of `RegexUnmarshaler`. When an `Encoder` field's type satisfies this interface, `Encode` calls `MarshalRegex` instead of the built-in conversion. A type implementing both `RegexMarshaler` and `RegexUnmarshaler` round-trips symmetrically through `Encoder` and `Decoder`.
+
+```go
+type RegexMarshaler interface {
+    MarshalRegex() (string, error)
+}
+```
+
+**Conversion precedence** mirrors the decode side: (1) `RegexMarshaler`; (2) the `time.Time` / `time.Duration` special-cases; (3) `encoding.TextMarshaler`; (4) the built-in string/int/uint/float/bool conversion.
+
+```go
+func (s Status) MarshalRegex() (string, error) {
+    switch s {
+    case StatusOpen:   return "open", nil
+    case StatusClosed: return "closed", nil
+    default:           return "", fmt.Errorf("unknown status: %d", s)
+    }
+}
+```
+
 ## Why regextra?
 
 The standard library's `regexp` package requires verbose code to extract named capture groups:
@@ -479,6 +535,7 @@ name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
 - ✅ **Named group extraction** - Extract groups by name without index juggling
 - ✅ **Map-based access** - Get all named groups in one call
 - ✅ **Struct unmarshaling** - Type-safe extraction with automatic conversion
+- ✅ **Typed round-trip** - `Encoder[T]` renders a struct back to a string, derived by inverting the decoder's own compiled pattern (no separate template to keep in sync)
 - ✅ **Safe by default** - Built-in nil checks, returns empty values on no match
 - ✅ **Zero dependencies** - Only depends on Go's standard library
 
