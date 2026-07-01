@@ -59,6 +59,16 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 // to read fields, but does no per-call field-mapping reflection — the field↦group
 // resolution is cached in the plan at construction.
 //
+// # Supported field types
+//
+// A named group resolves to a field whose type Encode can render — the same set
+// [Unmarshal] accepts on the decode side: string, bool, all int/uint widths,
+// float32/float64, time.Time, time.Duration, a type implementing [RegexMarshaler]
+// or [encoding.TextMarshaler], and pointers (any depth) to any of these. A
+// mapped field of any other type makes [Decoder.Encoder] fail with
+// [ErrInvalidStruct]. A time.Time field honors a `layout=` tag option and
+// otherwise emits RFC3339Nano.
+//
 // # Round-trip contract
 //
 // Encode(v) re-decodes to v when each encoded value re-matches the sub-pattern of
@@ -140,8 +150,8 @@ var (
 //	}
 //
 // Err holds the underlying cause (e.g. an error from a custom [RegexMarshaler]
-// or [encoding.TextMarshaler], or a nil-pointer field) and is reachable via
-// [errors.Is]/[errors.As] through Unwrap.
+// or [encoding.TextMarshaler], or a nil-pointer or nil-interface field) and is
+// reachable via [errors.Is]/[errors.As] through Unwrap.
 type EncodeError struct {
 	// Field is the source struct field name.
 	Field string
@@ -185,7 +195,7 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // The latter two wrap [ErrInvalidStruct], mirroring [Compile]. Once Encoder
 // returns nil, the resulting Encoder is fully validated: the only errors
 // [Encoder.Encode] can then surface are runtime value failures (a custom
-// marshaler returning an error, or a nil pointer field).
+// marshaler returning an error, or a nil pointer or nil interface field).
 func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 	var zero T
 	rt := reflect.TypeOf(zero)
@@ -455,7 +465,8 @@ func encodableType(t reflect.Type) bool {
 //
 // Returns an [EncodeError] (wrapped with the entrypoint prefix) if a field
 // cannot be rendered at runtime — a custom [RegexMarshaler] / [encoding.TextMarshaler]
-// returning an error, or a nil pointer field, which has no string form.
+// returning an error, or a nil pointer or nil interface field, which has no
+// string form.
 //
 // The `default=` tag option does not affect encoding: it is a decode-side
 // substitution for an absent group, whereas Encode always emits the field's

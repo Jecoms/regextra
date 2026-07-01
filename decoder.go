@@ -84,7 +84,9 @@ type fieldDecoder struct {
 // Returns an error if:
 //   - pattern is not a valid regular expression
 //   - T is not a struct type
-//   - A field's `regex:"name"` tag references a group not declared on pattern
+//   - A field's `regex:"name"` tag references a group not declared on pattern,
+//     and the field has no `default=` (a `default=` makes a missing group
+//     intentional, so the field compiles and the default always fires)
 //   - A field's `regex:",default=<value>"` cannot be converted to the field's type
 //   - A field uses `regex:",layout=..."` on a non-time.Time field
 //
@@ -282,9 +284,10 @@ func resolveGroupName(re *regexp.Regexp, sf reflect.StructField, groupIndexes []
 }
 
 // One returns the result of decoding the first match of d's pattern in target.
-// Returns [ErrNoMatch] if there's no match. Other errors indicate a per-field
-// conversion failure (a [DecodeError]); in that case the returned T contains
-// whatever fields were successfully decoded before the failure. A matched field
+// Returns [ErrNoMatch] if there's no match. Other errors indicate either a
+// per-field conversion failure (a [DecodeError]) or a `required` group that
+// produced no value (a [RequiredGroupError]); in that case the returned T
+// contains whatever fields were successfully decoded before the failure. A matched field
 // whose type is a nested struct, slice, or map is one such failure: these are
 // not flattened, so binding a group to one yields an "unsupported field type"
 // error (unless the type implements [RegexUnmarshaler] or
@@ -310,8 +313,9 @@ func (d *Decoder[T]) One(target string) (T, error) {
 
 // All returns every match of d's pattern in target decoded into a slice.
 // Returns an empty slice and nil error when there are no matches. A non-nil
-// error indicates a per-field conversion failure on one of the matches; the
-// slice up to that point may contain partially-decoded entries.
+// error indicates a per-field conversion failure (a [DecodeError]) or a
+// `required` group that produced no value (a [RequiredGroupError]) on one of the
+// matches; the slice up to that point may contain partially-decoded entries.
 func (d *Decoder[T]) All(target string) ([]T, error) {
 	allMatches := d.re.FindAllStringSubmatchIndex(target, -1)
 	if len(allMatches) == 0 {
@@ -329,8 +333,9 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 
 // Iter returns a range-over-func iterator that decodes each match of d's
 // pattern in target into a T, yielded with the per-match decode error.
-// nil error means decoded successfully; non-nil means a per-field
-// conversion failed on that match. Iteration continues past errors so
+// nil error means decoded successfully; non-nil means a per-field conversion
+// failed (a [DecodeError]) or a `required` group produced no value (a
+// [RequiredGroupError]) on that match. Iteration continues past errors so
 // callers can collect or skip individual failures:
 //
 //	for v, err := range dec.Iter(input) {
