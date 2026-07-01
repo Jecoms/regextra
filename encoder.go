@@ -167,8 +167,15 @@ type EncodeError struct {
 }
 
 // Error implements the error interface. The calling entrypoint prepends its own
-// `regextra.<Entrypoint>:` prefix when wrapping.
+// `regextra.<Entrypoint>:` prefix when wrapping. When Err is nil (only reachable
+// by constructing the value directly — the encode path always sets an underlying
+// cause) it reports "no encode error" rather than a message with a dangling
+// "<nil>" cause, mirroring [DecodeError], [RequiredGroupError], and
+// [MissingNamedGroupsError].
 func (e *EncodeError) Error() string {
+	if e.Err == nil {
+		return "no encode error"
+	}
 	return fmt.Sprintf("field %s: %v", e.Field, e.Err)
 }
 
