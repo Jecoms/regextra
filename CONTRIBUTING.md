@@ -122,9 +122,10 @@ cp CLAUDE.md.example CLAUDE.md
 - **Format** (`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)):
   file the entry under the matching category heading — `Added`, `Changed`,
   `Fixed`, `Removed`, `Deprecated`, or `Security`, plus this project's
-  `Performance` and `Documentation` headings — as a one-line imperative
-  description ending with a `(#NN)` reference to the PR or issue. Look at the
-  existing `[Unreleased]` entries for the model.
+  `Performance`, `Documentation`, and `Dependencies` headings — leading with a
+  short bold summary phrase, then any explanatory prose the change needs, and
+  ending with a `(#NN)` reference to the PR or issue. Look at the existing
+  `[Unreleased]` entries for the model.
 - Note whether the change is additive/non-breaking (most are) — see the
   breaking-change policy under [PR Guidelines](#pr-guidelines).
 
