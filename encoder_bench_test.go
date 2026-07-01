@@ -7,37 +7,53 @@ import (
 	rx "github.com/jecoms/regextra"
 )
 
-// ── NewEncoder / MustNewEncoder ────────────────────────────────────────────────
-//
-// Cost model: a one-time template parse plus, per placeholder, a field resolve
-// (parseFieldTag over T's fields) and an encodability check. This is the cold
-// construction path — callers build one Encoder and reuse it — so it is measured
-// only to keep the parse allocation-aware, not because it sits on the hot path.
+// mustDeriveEncoder derives an Encoder from a compiled Decoder or panics —
+// package-level construction for the benchmark fixtures.
+func mustDeriveEncoder[T any](d *rx.Decoder[T]) *rx.Encoder[T] {
+	e, err := d.Encoder()
+	if err != nil {
+		panic(err)
+	}
+	return e
+}
 
-func BenchmarkNewEncoder(b *testing.B) {
-	benchCase(b, "simpleStruct", func() { e, err := rx.NewEncoder[benchSimple](benchEncSimpleTemplate); sinkAny, sinkErr = e, err })
-	benchCase(b, "wideStruct", func() { e, err := rx.NewEncoder[benchEncWide](benchEncWideTemplate); sinkAny, sinkErr = e, err })
-	benchCase(b, "mustNewEncoder", func() { sinkAny = rx.MustNewEncoder[benchSimple](benchEncSimpleTemplate) })
+// ── Decoder.Encoder ────────────────────────────────────────────────────────────
+//
+// Cost model: a one-time AST parse of the decoder's pattern plus, per named
+// capture group, a field resolve (parseFieldTag over T's fields) and an
+// encodability check. This is the cold derivation path — callers derive one
+// Encoder from a Decoder and reuse it — so it is measured only to keep the walk
+// allocation-aware, not because it sits on the hot path.
+
+var (
+	benchEncSimpleDecoder = rx.MustCompile[benchSimple](benchSimplePattern)
+	benchEncTimeDecoder   = rx.MustCompile[benchEncTime](`(?P<at>\S+)`)
+	benchEncWideDecoder   = rx.MustCompile[benchEncWide](benchEncWidePattern)
+)
+
+func BenchmarkDeriveEncoder(b *testing.B) {
+	benchCase(b, "simpleStruct", func() { e, err := benchEncSimpleDecoder.Encoder(); sinkAny, sinkErr = e, err })
+	benchCase(b, "wideStruct", func() { e, err := benchEncWideDecoder.Encoder(); sinkAny, sinkErr = e, err })
 }
 
 // ── Encoder.Encode ─────────────────────────────────────────────────────────────
 //
 // The hot path: Encode walks a precomputed segment list, rendering each field
 // with encodeFieldValue and concatenating via strings.Builder — no per-call
-// reflect of T's fields. Encoders are constructed once (package-level) so the
-// loop measures Encode, not NewEncoder. simple pairs with
-// BenchmarkDecoderOne/simple on the same fixture shape (the inverse direction).
+// reflect of T's fields. Encoders are derived once (package-level) so the loop
+// measures Encode, not the derivation. simple reuses benchSimple/benchSimplePattern
+// so it pairs with BenchmarkDecoderOne/simple on the same fixture (the inverse
+// direction).
 
 var (
-	benchEncSimpleEncoder = rx.MustNewEncoder[benchSimple](benchEncSimpleTemplate)
-	benchEncTimeEncoder   = rx.MustNewEncoder[benchEncTime](`{at}`)
-	benchEncWideEncoder   = rx.MustNewEncoder[benchEncWide](benchEncWideTemplate)
+	benchEncSimpleEncoder = mustDeriveEncoder(benchEncSimpleDecoder)
+	benchEncTimeEncoder   = mustDeriveEncoder(benchEncTimeDecoder)
+	benchEncWideEncoder   = mustDeriveEncoder(benchEncWideDecoder)
 )
 
-const (
-	benchEncSimpleTemplate = `{name} is {age} {active}`
-	benchEncWideTemplate   = `{f0} {f1} {f2} {f3} {f4} {f5} {f6} {f7} {f8} {f9}`
-)
+// benchEncWidePattern is the invertible decode pattern the wide encoder derives
+// from — ten named groups separated by single-space literals.
+const benchEncWidePattern = `(?P<f0>\S+) (?P<f1>\S+) (?P<f2>\S+) (?P<f3>\S+) (?P<f4>\S+) (?P<f5>\S+) (?P<f6>\S+) (?P<f7>\S+) (?P<f8>\S+) (?P<f9>\S+)`
 
 type benchEncTime struct {
 	At time.Time `regex:"at"`
@@ -69,8 +85,4 @@ func BenchmarkEncode(b *testing.B) {
 	benchCase(b, "simple", func() { sinkStr, sinkErr = benchEncSimpleEncoder.Encode(benchEncSimpleVal) })
 	benchCase(b, "withTime", func() { sinkStr, sinkErr = benchEncTimeEncoder.Encode(benchEncTimeVal) })
 	benchCase(b, "manyFields", func() { sinkStr, sinkErr = benchEncWideEncoder.Encode(benchEncWideVal) })
-}
-
-func BenchmarkEncoderTemplate(b *testing.B) {
-	benchCase(b, "template", func() { sinkStr = benchEncSimpleEncoder.Template() })
 }

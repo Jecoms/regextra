@@ -455,15 +455,16 @@ dec.Regexp().FindAllString("Alice is 30 and Bob is 25", -1)
 
 `Decoder` instances are safe for concurrent use.
 
-### `NewEncoder[T any](template string) (*Encoder[T], error)` / `MustNewEncoder[T any](template string) *Encoder[T]`
+### `(d *Decoder[T]) Encoder() (*Encoder[T], error)`
 
-The typed inverse of `Decoder`: render a value of `T` back into a string, so an `Encode` followed by a `Decoder.One` / `Unmarshal` on a compatible pattern round-trips the original struct.
+The typed inverse of `Decoder`, **derived from the decoder's own compiled pattern** — write the pattern once and get the encoder for free, with no separate template to keep in sync. `Encode` followed by a `Decoder.One` / `Unmarshal` on the same pattern round-trips the original struct.
 
-Go's `regexp` patterns are **not** generically reversible (`\d+` describes many strings, not one), so `Encoder` compiles its own small template language rather than a regex:
+`Encoder()` parses the decoder's pattern with `regexp/syntax` and inverts the **invertible subset** of the grammar into an ordered encode plan:
 
-- **Literal text** is emitted verbatim.
-- **`{name}` placeholders** are replaced with the value of the struct field that resolves to `name` — the same field-mapping rules `Decoder` uses (the field's `regex:"name"` tag if present, otherwise the field's own name, matched case-insensitively). A `regex:"-"` field is excluded and cannot be referenced.
-- **Literal braces** are written by doubling: `{{` emits `{` and `}}` emits `}`.
+- **Literal text** is emitted verbatim (regexp escapes like `\.` are already decoded by the parser).
+- **Named capture groups** `(?P<name>…)` become field substitutions: `name` resolves to a struct field with the same rules `Decoder` uses (the field's `regex:"name"` tag if present, otherwise the field's own name, matched case-insensitively; a `regex:"-"` field is excluded). The group's sub-pattern is discarded — the field's value fills the span.
+- **Anchors and zero-width assertions** (`^`, `$`, `\A`, `\z`, `\b`, …) match no text and are dropped.
+- An **unnamed group** whose body is pure literal text is treated as that literal.
 
 ```go
 type Person struct {
@@ -471,20 +472,20 @@ type Person struct {
     Age  int    `regex:"age"`
 }
 
-var (
-    enc = regextra.MustNewEncoder[Person](`{name} is {age}`)
-    dec = regextra.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
-)
+dec := regextra.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+enc, _ := dec.Encoder()
 
 s, _ := enc.Encode(Person{Name: "Alice", Age: 30})   // "Alice is 30"
 back, _ := dec.One(s)                                 // Person{Name: "Alice", Age: 30}
 ```
 
+**Non-invertible patterns fail fast.** Any construct with no single string to emit — an alternation (`|`), a quantifier (`*`, `+`, `?`, `{n,m}`), a character class (`[...]`), an any-character wildcard (`.`), or an unnamed group with non-literal content — appearing **outside** a named capture group makes the pattern non-invertible, and `Encoder()` returns an error wrapping `regextra.ErrNotInvertible` that names the offending construct. (Inside a named capture such constructs are fine: the field's value fills the group.)
+
 **Supported field types:** same set as `Unmarshal` — `string`, all int/uint/float widths, `bool`, `time.Time`, `time.Duration`, and single-level pointers to any of these. `time.Time` encodes as RFC3339Nano by default (the first layout `Decoder` tries, so the output re-parses and sub-second precision survives), or the `layout=` layout when tagged. Any type implementing [`encoding.TextMarshaler`](https://pkg.go.dev/encoding#TextMarshaler) (e.g. `netip.Addr`, `uuid.UUID`) is encoded via `MarshalText`. For caller-defined types, implement `RegexMarshaler` (below).
 
-**Construction-time validation is strict**, mirroring `Compile`: `NewEncoder` returns an error (or `MustNewEncoder` panics) if `T` is not a struct, the template is malformed (unterminated `{`, empty `{}`, or an unescaped `}`), a placeholder references no field, a referenced field's type can't be encoded, or `layout=` sits on a non-`time.Time` field. A successful `NewEncoder` can only fail at `Encode` time on a runtime value error (a custom marshaler returning an error, or a nil pointer field, which has no string form) — surfaced as a `*regextra.EncodeError` (the encode-side mirror of `DecodeError`).
+**Construction-time validation is strict**, mirroring `Compile`: `Encoder()` returns an error if the pattern is not invertible (above), a named group maps to no exported/eligible field, or a mapped field's type can't be encoded (the latter two wrap `regextra.ErrInvalidStruct`). A successful `Encoder()` can only fail at `Encode` time on a runtime value error (a custom marshaler returning an error, or a nil pointer field, which has no string form) — surfaced as a `*regextra.EncodeError` (the encode-side mirror of `DecodeError`).
 
-**Round-trip contract (v1).** `Encode(v)` re-decodes to `v` when each encoded value re-matches the sub-pattern its placeholder maps to in the decode regex — the caller owns that pairing (same names in both, value-appropriate sub-patterns like `\S+`). The `default=` tag option does not affect encoding (it is a decode-side substitution); `Encode` always emits the field's actual value. Values that collide with a surrounding literal delimiter, or two placeholders with no literal between them, have no unambiguous decode boundary and are out of scope for v1.
+**Round-trip contract.** `Encode(v)` re-decodes to `v` when each encoded value re-matches the sub-pattern of the group it fills — the caller owns that pairing by writing value-appropriate sub-patterns (a captured word wants `\S+`, not `.*`). The `default=` tag option does not affect encoding (it is a decode-side substitution); `Encode` always emits the field's actual value. Values that collide with a surrounding literal delimiter, or two adjacent captures with no literal between them, have no unambiguous decode boundary and are out of scope. (A future option is to re-match each encoded value against its group's sub-pattern at `Encode` time; that is deliberately not done today.)
 
 `Encoder` instances are safe for concurrent use.
 
