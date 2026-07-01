@@ -481,7 +481,6 @@ name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
 - ✅ **Struct unmarshaling** - Type-safe extraction with automatic conversion
 - ✅ **Safe by default** - Built-in nil checks, returns empty values on no match
 - ✅ **Zero dependencies** - Only depends on Go's standard library
-- ✅ **Pay for what you use** - Unused functions are dead-code-eliminated at link time, so importing the package costs nothing for symbols you don't call
 
 ## License
 
