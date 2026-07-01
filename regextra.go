@@ -447,8 +447,8 @@ func fillNamedGroupValues(dst map[string]string, names []string, target string, 
 // Groups that appear once still get a one-element slice.
 //
 // The leading "All" refers to all named groups in one match — not to all
-// matches across the target. Internally the function calls FindStringSubmatch,
-// so only the first match contributes values. To collect every value of a
+// matches across the target. Internally the function inspects only the first
+// match, so only the first match contributes values. To collect every value of a
 // single named group across every match in the target, use [FindAllNamed]. To
 // collect every named group across every match as one map per match, use
 // [NamedGroupsPerMatch] (or [NamedGroupsPerMatchSeq] for the lazy form); the
@@ -470,17 +470,30 @@ func fillNamedGroupValues(dst map[string]string, names []string, target string, 
 //	allGroups := regextra.AllNamedGroups(re, "Alice 30")
 //	// allGroups = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
 func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
+	names := re.SubexpNames()
+	// No map size hint: len(names) counts slots, not distinct names, so it
+	// over-allocates when a pattern reuses one name across many occurrences.
 	result := make(map[string][]string)
 
-	matches := re.FindStringSubmatch(target)
-	if matches == nil {
+	// Index form returns only the match offsets ([]int); we slice each
+	// participating group out of target directly. FindStringSubmatch would
+	// additionally allocate a []string of every group just to read it once.
+	loc := re.FindStringSubmatchIndex(target)
+	if loc == nil {
 		return result
 	}
 
-	for i, name := range re.SubexpNames() {
-		if i != 0 && name != "" {
-			result[name] = append(result[name], matches[i])
+	for i, name := range names {
+		if i == 0 || name == "" {
+			continue
 		}
+		// A non-participating group has start < 0; preserve
+		// FindStringSubmatch's behavior of contributing "" for it.
+		value := ""
+		if start := loc[2*i]; start >= 0 {
+			value = target[start:loc[2*i+1]]
+		}
+		result[name] = append(result[name], value)
 	}
 
 	return result
@@ -704,8 +717,9 @@ func (e *MissingNamedGroupsError) Error() string {
 //	    // err: regextra.Validate: missing named groups: missing
 //	}
 func Validate(re *regexp.Regexp, required ...string) error {
-	declared := make(map[string]struct{}, len(re.SubexpNames()))
-	for _, n := range re.SubexpNames() {
+	names := re.SubexpNames()
+	declared := make(map[string]struct{}, len(names))
+	for _, n := range names {
 		if n != "" {
 			declared[n] = struct{}{}
 		}
