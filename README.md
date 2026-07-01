@@ -455,6 +455,61 @@ dec.Regexp().FindAllString("Alice is 30 and Bob is 25", -1)
 
 `Decoder` instances are safe for concurrent use.
 
+### `NewEncoder[T any](template string) (*Encoder[T], error)` / `MustNewEncoder[T any](template string) *Encoder[T]`
+
+The typed inverse of `Decoder`: render a value of `T` back into a string, so an `Encode` followed by a `Decoder.One` / `Unmarshal` on a compatible pattern round-trips the original struct.
+
+Go's `regexp` patterns are **not** generically reversible (`\d+` describes many strings, not one), so `Encoder` compiles its own small template language rather than a regex:
+
+- **Literal text** is emitted verbatim.
+- **`{name}` placeholders** are replaced with the value of the struct field that resolves to `name` — the same field-mapping rules `Decoder` uses (the field's `regex:"name"` tag if present, otherwise the field's own name, matched case-insensitively). A `regex:"-"` field is excluded and cannot be referenced.
+- **Literal braces** are written by doubling: `{{` emits `{` and `}}` emits `}`.
+
+```go
+type Person struct {
+    Name string `regex:"name"`
+    Age  int    `regex:"age"`
+}
+
+var (
+    enc = regextra.MustNewEncoder[Person](`{name} is {age}`)
+    dec = regextra.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+)
+
+s, _ := enc.Encode(Person{Name: "Alice", Age: 30})   // "Alice is 30"
+back, _ := dec.One(s)                                 // Person{Name: "Alice", Age: 30}
+```
+
+**Supported field types:** same set as `Unmarshal` — `string`, all int/uint/float widths, `bool`, `time.Time`, `time.Duration`, and single-level pointers to any of these. `time.Time` encodes as RFC3339Nano by default (the first layout `Decoder` tries, so the output re-parses and sub-second precision survives), or the `layout=` layout when tagged. Any type implementing [`encoding.TextMarshaler`](https://pkg.go.dev/encoding#TextMarshaler) (e.g. `netip.Addr`, `uuid.UUID`) is encoded via `MarshalText`. For caller-defined types, implement `RegexMarshaler` (below).
+
+**Construction-time validation is strict**, mirroring `Compile`: `NewEncoder` returns an error (or `MustNewEncoder` panics) if `T` is not a struct, the template is malformed (unterminated `{`, empty `{}`, or an unescaped `}`), a placeholder references no field, a referenced field's type can't be encoded, or `layout=` sits on a non-`time.Time` field. A successful `NewEncoder` can only fail at `Encode` time on a runtime value error (a custom marshaler returning an error, or a nil pointer field, which has no string form) — surfaced as a `*regextra.EncodeError` (the encode-side mirror of `DecodeError`).
+
+**Round-trip contract (v1).** `Encode(v)` re-decodes to `v` when each encoded value re-matches the sub-pattern its placeholder maps to in the decode regex — the caller owns that pairing (same names in both, value-appropriate sub-patterns like `\S+`). The `default=` tag option does not affect encoding (it is a decode-side substitution); `Encode` always emits the field's actual value. Values that collide with a surrounding literal delimiter, or two placeholders with no literal between them, have no unambiguous decode boundary and are out of scope for v1.
+
+`Encoder` instances are safe for concurrent use.
+
+### `RegexMarshaler` interface
+
+The encode-side mirror of `RegexUnmarshaler`. When an `Encoder` field's type satisfies this interface, `Encode` calls `MarshalRegex` instead of the built-in conversion. A type implementing both `RegexMarshaler` and `RegexUnmarshaler` round-trips symmetrically through `Encoder` and `Decoder`.
+
+```go
+type RegexMarshaler interface {
+    MarshalRegex() (string, error)
+}
+```
+
+**Conversion precedence** mirrors the decode side: (1) `RegexMarshaler`; (2) the `time.Time` / `time.Duration` special-cases; (3) `encoding.TextMarshaler`; (4) the built-in string/int/uint/float/bool conversion.
+
+```go
+func (s Status) MarshalRegex() (string, error) {
+    switch s {
+    case StatusOpen:   return "open", nil
+    case StatusClosed: return "closed", nil
+    default:           return "", fmt.Errorf("unknown status: %d", s)
+    }
+}
+```
+
 ## Why regextra?
 
 The standard library's `regexp` package requires verbose code to extract named capture groups:
@@ -479,6 +534,7 @@ name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
 - ✅ **Named group extraction** - Extract groups by name without index juggling
 - ✅ **Map-based access** - Get all named groups in one call
 - ✅ **Struct unmarshaling** - Type-safe extraction with automatic conversion
+- ✅ **Typed round-trip** - `Encoder[T]` renders a struct back to a string via a reversible template
 - ✅ **Safe by default** - Built-in nil checks, returns empty values on no match
 - ✅ **Zero dependencies** - Only depends on Go's standard library
 - ✅ **Pay for what you use** - Unused functions are dead-code-eliminated at link time, so importing the package costs nothing for symbols you don't call
