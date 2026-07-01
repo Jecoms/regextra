@@ -98,7 +98,7 @@ type fieldDecoder struct {
 func Compile[T any](pattern string) (*Decoder[T], error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("regextra.Compile: %w: %w", ErrInvalidPattern, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidPattern, err)
 	}
 	return compileDecoder[T](pattern, re)
 }
@@ -119,7 +119,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 	var zero T
 	rt := reflect.TypeOf(zero)
 	if rt == nil || rt.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("regextra.Compile: %w: T must be a struct type, got %v", ErrInvalidStruct, rt)
+		return nil, fmt.Errorf("%w: T must be a struct type, got %v", ErrInvalidStruct, rt)
 	}
 
 	// strict=true: the Decoder validates eagerly so a successful Compile
@@ -186,7 +186,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 				// Missing group with no default IS a typo — fail at compile.
 				// With a default, missing group is intentional (the default
 				// always fires). The lenient path skips the field below.
-				return nil, fmt.Errorf("regextra.Compile: %w: field %s references group %q which is not declared on the pattern", ErrInvalidStruct, sf.Name, groupName)
+				return nil, fmt.Errorf("%w: field %s references group %q which is not declared on the pattern", ErrInvalidStruct, sf.Name, groupName)
 			}
 		}
 
@@ -197,7 +197,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 			if def, ok := opts["default"]; ok {
 				probe := reflect.New(sf.Type).Elem()
 				if err := setFieldValue(probe, def, opts); err != nil {
-					return nil, fmt.Errorf("regextra.Compile: %w: field %s default %q does not convert to %v: %w", ErrInvalidStruct, sf.Name, def, sf.Type, err)
+					return nil, fmt.Errorf("%w: field %s default %q does not convert to %v: %w", ErrInvalidStruct, sf.Name, def, sf.Type, err)
 				}
 			}
 
@@ -208,7 +208,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 					ft = ft.Elem()
 				}
 				if ft != timeTimeType {
-					return nil, fmt.Errorf("regextra.Compile: %w: field %s has `layout=` option but is %v, not time.Time", ErrInvalidStruct, sf.Name, sf.Type)
+					return nil, fmt.Errorf("%w: field %s has `layout=` option but is %v, not time.Time", ErrInvalidStruct, sf.Name, sf.Type)
 				}
 			}
 		}
