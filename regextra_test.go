@@ -558,6 +558,105 @@ func ExampleReplace() {
 	// Output: alice@redacted bob@redacted
 }
 
+func TestReplaceFirst(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		repl    map[string]string
+		want    string
+	}{
+		{
+			name:    "first match substituted, later matches untouched",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com bob@other.org",
+			repl:    map[string]string{"domain": "redacted"},
+			want:    "alice@redacted bob@other.org",
+		},
+		{
+			name:    "single match behaves like Replace",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com",
+			repl:    map[string]string{"user": "bob", "domain": "redacted"},
+			want:    "bob@redacted",
+		},
+		{
+			name:    "text before and after the first match passes through",
+			pattern: `(?P<num>\d+)`,
+			target:  "a 1 b 2 c 3 d",
+			repl:    map[string]string{"num": "*"},
+			want:    "a * b 2 c 3 d",
+		},
+		{
+			name:    "key not in map passes through, only first match considered",
+			pattern: `(?P<key>\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2",
+			repl:    map[string]string{"val": "?"},
+			want:    "a=? b=2",
+		},
+		{
+			name:    "no match returns target unchanged",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "no matches here",
+			repl:    map[string]string{"word": "X"},
+			want:    "no matches here",
+		},
+		{
+			name:    "empty replacements returns target unchanged",
+			pattern: `(?P<word>\w+)`,
+			target:  "alpha beta",
+			repl:    map[string]string{},
+			want:    "alpha beta",
+		},
+		{
+			// Overlap/nesting within the first match follows Replace's rule: the
+			// outermost span (same start, larger end) wins; the inner group inside
+			// the already-replaced span is not substituted. Only the first match is
+			// processed.
+			name:    "nested groups within first match, outermost wins",
+			pattern: `(?P<outer>(?P<inner>\w+)@[\w.]+)`,
+			target:  "alice@example.com bob@other.org",
+			repl:    map[string]string{"outer": "REDACTED", "inner": "X"},
+			want:    "REDACTED bob@other.org",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := rx.ReplaceFirst(re, tt.target, tt.repl)
+			if got != tt.want {
+				t.Errorf("ReplaceFirst = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestReplaceFirstRemainderByteIdentical asserts that everything from the end of
+// the first match onward is copied through byte-for-byte, not re-scanned.
+func TestReplaceFirstRemainderByteIdentical(t *testing.T) {
+	re := regexp.MustCompile(`(?P<word>\w+)`)
+	target := "alpha beta gamma delta"
+	got := rx.ReplaceFirst(re, target, map[string]string{"word": "X"})
+	const want = "X beta gamma delta"
+	if got != want {
+		t.Fatalf("ReplaceFirst = %q, want %q", got, want)
+	}
+	// The tail after the first match must equal the original target's tail.
+	firstLoc := re.FindStringIndex(target)
+	if tail := got[len("X"):]; tail != target[firstLoc[1]:] {
+		t.Errorf("tail after first match = %q, want %q", tail, target[firstLoc[1]:])
+	}
+}
+
+func ExampleReplaceFirst() {
+	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+	out := rx.ReplaceFirst(re, "alice@example.com bob@other.org", map[string]string{
+		"domain": "redacted",
+	})
+	fmt.Println(out)
+	// Output: alice@redacted bob@other.org
+}
+
 func TestReplaceFunc(t *testing.T) {
 	upper := func(_, m string) string { return strings.ToUpper(m) }
 

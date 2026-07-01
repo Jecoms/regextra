@@ -175,6 +175,18 @@ out := regextra.Replace(re, "alice@example.com bob@other.org", map[string]string
 // out = "alice@redacted bob@redacted"
 ```
 
+### `ReplaceFirst(re *regexp.Regexp, target string, replacements map[string]string) string`
+
+Like `Replace`, but substitutes named-group spans only within the **first** match of `re`; every later match, and all text outside the first match, passes through byte-for-byte unchanged. Within that first match it follows `Replace`'s rules exactly (groups absent from the map pass through, non-participating groups are skipped, outermost span wins on overlap). On no match, the target is returned unchanged.
+
+```go
+re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+out := regextra.ReplaceFirst(re, "alice@example.com bob@other.org", map[string]string{
+    "domain": "redacted",
+})
+// out = "alice@redacted bob@other.org"
+```
+
 ### `ReplaceFunc(re *regexp.Regexp, target string, fn func(group, match string) string) string`
 
 Like `Replace`, but the replacement for each named-group span is computed by a callback over the matched value instead of looked up in a static map. Use it when the substitution depends on what matched — redaction, normalization, and similar. `fn` is called once per substituted named span, left to right, with the group's name and matched text; return the match verbatim to leave a group unchanged. On no match the target is returned unchanged and `fn` is never called. Passing a nil `fn` is a programmer error and panics on the first match, mirroring the standard library's `Regexp.ReplaceAllStringFunc`.
