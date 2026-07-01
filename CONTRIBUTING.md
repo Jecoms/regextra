@@ -113,6 +113,21 @@ cp CLAUDE.md.example CLAUDE.md
 - Update README.md when adding new public APIs
 - Add example tests that demonstrate usage
 
+### Changelog
+- **Add a CHANGELOG entry whenever a PR adds a feature or changes existing
+  behavior.** The entry goes under the `## [Unreleased]` heading in
+  `CHANGELOG.md`; a release later promotes `[Unreleased]` to a version. Pure
+  refactors, tests, and CI-only changes that don't alter observable behavior
+  don't need one.
+- **Format** (`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)):
+  file the entry under the matching category heading — `Added`, `Changed`,
+  `Fixed`, `Removed`, `Deprecated`, or `Security`, plus this project's
+  `Performance` and `Documentation` headings — as a one-line imperative
+  description ending with a `(#NN)` reference to the PR or issue. Look at the
+  existing `[Unreleased]` entries for the model.
+- Note whether the change is additive/non-breaking (most are) — see the
+  breaking-change policy under [PR Guidelines](#pr-guidelines).
+
 ### Code Style
 - Follow the conventions in `Effective Go` and `Go Code Review Comments`
 - Keep functions focused and single-purpose
@@ -199,14 +214,22 @@ go test -bench=. -benchmem
 2. **Run linter**: `golangci-lint run`
 3. **Check formatting**: `gofmt -s -l .`
 4. **Update documentation**: Add examples and update README if needed
-5. **Check benchmarks**: for hot-path or feature changes, confirm the relevant `*_bench_test.go` benchmarks hold or improve (or justify the regression)
+5. **Add a CHANGELOG entry**: for a feature or a change to existing behavior, add an entry under `## [Unreleased]` in `CHANGELOG.md` (see [Changelog](#changelog))
+6. **Check benchmarks**: for hot-path or feature changes, confirm the relevant `*_bench_test.go` benchmarks hold or improve (or justify the regression)
 
 ### PR Guidelines
 - **One feature per PR**: Keep changes focused
 - **Write clear descriptions**: Explain what and why
 - **Reference issues**: Link related issues or discussions
 - **Update tests**: Include test coverage for changes
-- **Breaking changes**: Clearly document in PR
+- **Breaking changes**: A breaking change **cannot ship in a minor or patch
+  release** — it must be deferred to the next major version (`v2.0.0`) and
+  called out as breaking. `regextra` is at v1 and follows strict SemVer; see
+  [README §Stability](./README.md#stability) for the precise definition of what
+  counts as breaking (and what doesn't). When a breaking change is in scope for
+  the next major, mark the commit/PR title with `!` (see the [Commit Message
+  Format](#commit-message-format)), explain the break in the PR body, and add a
+  CHANGELOG entry that labels it breaking.
 
 ### Commit Message Format
 
