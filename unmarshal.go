@@ -146,10 +146,11 @@ func (e *RequiredGroupError) Error() string {
 // Field mapping rules:
 //   - First checks the `regex:"groupname"` struct tag if provided (highest priority)
 //   - Falls back to exact field name match with capture group name
-//   - Falls back to case-insensitive field name match
+//   - Falls back to case-insensitive field name match (Unicode simple case folding)
 //   - Supports type conversion for string, bool, all int/uint widths,
-//     float32/float64, time.Time, time.Duration, and single-level pointers
-//     to any of these; types implementing [RegexUnmarshaler] convert themselves
+//     float32/float64, time.Time, time.Duration, and pointers (any depth)
+//     to any of these; types implementing [RegexUnmarshaler] or
+//     encoding.TextUnmarshaler convert themselves
 //   - Unexported fields are ignored
 //   - A group that did not participate in the match (e.g. an optional group),
 //     or that matched an empty span, leaves the field unchanged — unless the
@@ -163,7 +164,10 @@ func (e *RequiredGroupError) Error() string {
 //
 // Returns an error if:
 //   - v is not a pointer to a struct
-//   - Type conversion fails on a matched group
+//   - Type conversion fails on a matched group (a [DecodeError])
+//   - A `required` field's group produced no value (a [RequiredGroupError]): it
+//     did not participate in the match or matched an empty span, and no
+//     `default=` supplied a substitute
 //   - A matched field is a nested struct, slice, or map: these are not
 //     flattened, so a group bound to one yields an "unsupported field type"
 //     error (unless the type implements [RegexUnmarshaler] or
@@ -221,6 +225,12 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 // nil and sets the slice length to 0 — no match is data absence, not a failure.
 // See the package doc's "No-match behavior" section for the full cross-API
 // contract.
+//
+// Returns an error if v is not a pointer to a slice of structs, or if any match
+// fails to decode — a per-field conversion failure (a [DecodeError]) or a
+// `required` group that produced no value (a [RequiredGroupError]). The first
+// failing match stops the call and returns that error, prefixed with its match
+// index.
 //
 // Example:
 //

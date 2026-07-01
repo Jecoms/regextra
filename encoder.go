@@ -42,7 +42,7 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 //   - A named capture group `(?P<name>…)` becomes a field substitution: name
 //     resolves to a struct field with the same rules [Decoder] uses — the field's
 //     `regex:"name"` tag matched exactly, otherwise the field's own name matched
-//     exactly then case-insensitively via Unicode simple-fold; a `regex:"-"` field
+//     exactly then case-insensitively via Unicode simple case folding; a `regex:"-"` field
 //     is excluded. The group's sub-pattern is discarded — the field's value fills
 //     the span.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
@@ -58,6 +58,16 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 // concatenates with a strings.Builder. It still reflects on the value each call
 // to read fields, but does no per-call field-mapping reflection — the field↦group
 // resolution is cached in the plan at construction.
+//
+// # Supported field types
+//
+// A named group resolves to a field whose type Encode can render — the same set
+// [Unmarshal] accepts on the decode side: string, bool, all int/uint widths,
+// float32/float64, time.Time, time.Duration, a type implementing [RegexMarshaler]
+// or [encoding.TextMarshaler], and pointers (any depth) to any of these. A
+// mapped field of any other type makes [Decoder.Encoder] fail with
+// [ErrInvalidStruct]. A time.Time field honors a `layout=` tag option and
+// otherwise emits RFC3339Nano.
 //
 // # Round-trip contract
 //
@@ -140,15 +150,15 @@ var (
 //	}
 //
 // Err holds the underlying cause (e.g. an error from a custom [RegexMarshaler]
-// or [encoding.TextMarshaler], or a nil-pointer field) and is reachable via
-// [errors.Is]/[errors.As] through Unwrap.
+// or [encoding.TextMarshaler], or a nil-pointer or nil-interface field) and is
+// reachable via [errors.Is]/[errors.As] through Unwrap.
 type EncodeError struct {
 	// Field is the source struct field name.
 	Field string
 	// Group is the capture-group name the field resolved from: the field's
 	// `regex:"..."` tag name when set, otherwise the declared group whose name
 	// matches the field name — which may differ from the field name in case when
-	// the two matched via Unicode simple-fold. Mirrors [DecodeError].Group.
+	// the two matched via Unicode simple case folding. Mirrors [DecodeError].Group.
 	Group string
 	// Type is the source field's type, rendered (e.g. "int", "time.Time").
 	Type string
@@ -157,8 +167,15 @@ type EncodeError struct {
 }
 
 // Error implements the error interface. The calling entrypoint prepends its own
-// `regextra.<Entrypoint>:` prefix when wrapping.
+// `regextra.<Entrypoint>:` prefix when wrapping. When Err is nil (only reachable
+// by constructing the value directly — the encode path always sets an underlying
+// cause) it reports "no encode error" rather than a message with a dangling
+// "<nil>" cause, mirroring [DecodeError], [RequiredGroupError], and
+// [MissingNamedGroupsError].
 func (e *EncodeError) Error() string {
+	if e.Err == nil {
+		return "no encode error"
+	}
 	return fmt.Sprintf("field %s: %v", e.Field, e.Err)
 }
 
@@ -185,7 +202,7 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // The latter two wrap [ErrInvalidStruct], mirroring [Compile]. Once Encoder
 // returns nil, the resulting Encoder is fully validated: the only errors
 // [Encoder.Encode] can then surface are runtime value failures (a custom
-// marshaler returning an error, or a nil pointer field).
+// marshaler returning an error, or a nil pointer or nil interface field).
 func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 	var zero T
 	rt := reflect.TypeOf(zero)
@@ -455,7 +472,8 @@ func encodableType(t reflect.Type) bool {
 //
 // Returns an [EncodeError] (wrapped with the entrypoint prefix) if a field
 // cannot be rendered at runtime — a custom [RegexMarshaler] / [encoding.TextMarshaler]
-// returning an error, or a nil pointer field, which has no string form.
+// returning an error, or a nil pointer or nil interface field, which has no
+// string form.
 //
 // The `default=` tag option does not affect encoding: it is a decode-side
 // substitution for an absent group, whereas Encode always emits the field's

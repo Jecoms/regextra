@@ -63,7 +63,7 @@ By use case:
 For one-shot extraction, [Unmarshal] does its reflect work per call. For repeated
 decode of the same shape (log parsers, request handlers, config readers), use
 [Compile] / [Decoder] — it caches the per-field plan and benchmarks at roughly
-half the time and half the allocations of [Unmarshal] on equivalent input.
+half the time and far fewer allocations than [Unmarshal] on equivalent input.
 [Decoder.Iter] further skips the slice allocation entirely for streaming
 consumers.
 
