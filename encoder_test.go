@@ -295,6 +295,30 @@ func TestEncode_nilPointerErrors(t *testing.T) {
 	}
 }
 
+// On a fold match — an untagged field bound to a differently-cased group name —
+// EncodeError.Group carries the declared group name, not the field name. Mirrors
+// the fold-case assertion #142 added on the decode side and pins the Group-godoc
+// contract. Only untagged field names fold; an explicit `regex:` tag is matched
+// exactly (see resolveEncodeField), so the fold path is reached via the field
+// name here.
+func TestEncode_foldMatchGroupName(t *testing.T) {
+	type P struct {
+		Age *int // untagged; folds to the group AGE
+	}
+	e := mustEncoder[P](t, `(?P<AGE>\d+)`)
+	_, err := e.Encode(P{}) // nil pointer -> EncodeError
+	if err == nil {
+		t.Fatal("Encode of nil pointer field returned nil, want error")
+	}
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("error %v is not an *EncodeError", err)
+	}
+	if ee.Field != "Age" || ee.Group != "AGE" {
+		t.Errorf("EncodeError = %+v, want Field=Age Group=AGE (declared group name, not field name)", ee)
+	}
+}
+
 // A field whose static type is an interface implementing encoding.TextMarshaler
 // passes encodableType at construction, but a nil value has no concrete value to
 // render. Encode must surface a nil-style *EncodeError (mirroring the nil-pointer
@@ -355,6 +379,24 @@ func (s status) MarshalRegex() (string, error) {
 	default:
 		return "", fmt.Errorf("unknown status: %d", int(s))
 	}
+}
+
+func ExampleRegexMarshaler() {
+	type Severity int
+	const (
+		_ Severity = iota
+		Low
+		Medium
+		High
+	)
+	// In real code this would be a type defined in the same package as
+	// the call to Encode, with `func (s Severity) MarshalRegex() (string, error)`.
+	// Compile-time check elided here for example brevity.
+	_ = Low
+	_ = Medium
+	_ = High
+	fmt.Println("see TestEncode_regexMarshaler for a runnable demo")
+	// Output: see TestEncode_regexMarshaler for a runnable demo
 }
 
 func TestEncode_regexMarshaler(t *testing.T) {
@@ -477,6 +519,30 @@ func TestEncoder_excludedFieldNotMappable(t *testing.T) {
 	// A group named after an excluded field maps to nothing.
 	if _, err := rx.MustCompile[P](`(?P<Secret>\S+)`).Encoder(); err == nil {
 		t.Fatal("Encoder() mapped a regex:\"-\" field, want error")
+	}
+}
+
+// An explicit `regex:` tag binds to a capture group exactly, never via fold —
+// mirroring the decode side, where an explicit tag is matched exactly
+// (subexpIndexes) while only the untagged field-name fallback folds
+// (matchGroupName). Folding a case-mismatched tag would silently corrupt the
+// round-trip: a field `regex:"ID,default=x"` against `(?P<id>…)` would Encode
+// via the fold, but Decode maps ID to the absent group ID and returns the
+// default. Encoder() must instead fail fast — group id maps to no field.
+func TestEncoder_explicitTagMatchesExactly(t *testing.T) {
+	type P struct {
+		ID string `regex:"ID,default=x"`
+	}
+	// Compile succeeds: the default makes the absent group ID intentional.
+	_, err := rx.MustCompile[P](`v=(?P<id>\S+)`).Encoder()
+	if err == nil {
+		t.Fatal("Encoder() fold-bound an explicit tag to a case-mismatched group, want error")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v is not ErrInvalidStruct", err)
+	}
+	if !strings.Contains(err.Error(), "no exported field") {
+		t.Errorf("error = %q, want it to mention 'no exported field'", err.Error())
 	}
 }
 

@@ -40,10 +40,10 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 //   - Literal text is emitted verbatim (regexp escapes like `\.` are already
 //     decoded by the parser).
 //   - A named capture group `(?P<name>…)` becomes a field substitution: name
-//     resolves to a struct field with the same rules [Decoder] uses (the field's
-//     `regex:"name"` tag if present, otherwise the field's own name, matched
-//     case-insensitively via Unicode simple-fold; a `regex:"-"` field is
-//     excluded). The group's sub-pattern is discarded — the field's value fills
+//     resolves to a struct field with the same rules [Decoder] uses — the field's
+//     `regex:"name"` tag matched exactly, otherwise the field's own name matched
+//     exactly then case-insensitively via Unicode simple-fold; a `regex:"-"` field
+//     is excluded. The group's sub-pattern is discarded — the field's value fills
 //     the span.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
 //     text and are dropped.
@@ -55,7 +55,9 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 // non-invertible, and [Decoder.Encoder] fails fast with [ErrNotInvertible].
 //
 // [Decoder.Encoder] builds the plan once; [Encoder.Encode] walks it and
-// concatenates with a strings.Builder, running no per-call reflect of T's fields.
+// concatenates with a strings.Builder. It still reflects on the value each call
+// to read fields, but does no per-call field-mapping reflection — the field↦group
+// resolution is cached in the plan at construction.
 //
 // # Round-trip contract
 //
@@ -143,8 +145,10 @@ var (
 type EncodeError struct {
 	// Field is the source struct field name.
 	Field string
-	// Group is the capture-group name the field resolved from — the field's
-	// `regex:"..."` tag name when set, otherwise the field's own name.
+	// Group is the capture-group name the field resolved from: the field's
+	// `regex:"..."` tag name when set, otherwise the declared group whose name
+	// matches the field name — which may differ from the field name in case when
+	// the two matched via Unicode simple-fold. Mirrors [DecodeError].Group.
 	Group string
 	// Type is the source field's type, rendered (e.g. "int", "time.Time").
 	Type string
@@ -342,8 +346,8 @@ func notInvertibleError(construct string) error {
 
 // resolveEncodeField maps a capture-group name to an exported, non-excluded field
 // of rt, using the same field-mapping rules the decode side applies: a field's
-// `regex:"name"` tag when set, otherwise the field's own name, matched exactly
-// first and then case-insensitively via Unicode simple-fold (mirroring
+// `regex:"name"` tag matched exactly, otherwise the field's own name matched
+// exactly first and then case-insensitively via Unicode simple-fold (mirroring
 // matchGroupName). Returns the field index, its parsed tag options, and true on
 // a match; ("", nil, false) when no field resolves.
 func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, bool) {
@@ -353,7 +357,7 @@ func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, b
 		if !sf.IsExported() {
 			continue
 		}
-		candidate, opts, skip := fieldCandidateName(sf)
+		candidate, opts, _, skip := fieldCandidateName(sf)
 		if skip {
 			continue
 		}
@@ -361,13 +365,19 @@ func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, b
 			return i, opts, true
 		}
 	}
+	// Fold pass: only untagged fields fold. The decode side folds solely the
+	// field-name fallback (matchGroupName); an explicit `regex:` tag is matched
+	// exactly (subexpIndexes). Folding a tag here would bind a group that the
+	// decoder maps back to nothing, silently corrupting the round-trip — e.g. a
+	// field `regex:"ID,default=x"` against a `(?P<id>…)` group would Encode via
+	// the fold yet Decode to the default. See buildDecodePlan in decoder.go.
 	for i := range rt.NumField() {
 		sf := rt.Field(i)
 		if !sf.IsExported() {
 			continue
 		}
-		candidate, opts, skip := fieldCandidateName(sf)
-		if skip {
+		candidate, opts, tagged, skip := fieldCandidateName(sf)
+		if skip || tagged {
 			continue
 		}
 		if strings.EqualFold(candidate, name) {
@@ -379,18 +389,20 @@ func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, b
 
 // fieldCandidateName returns the name a field is addressable by — its
 // `regex:"name"` tag name when set, otherwise its own field name — plus the
-// parsed tag options and whether the field is excluded (`regex:"-"`).
-func fieldCandidateName(sf reflect.StructField) (name string, opts map[string]string, skip bool) {
+// parsed tag options, whether the name came from an explicit tag (tagged), and
+// whether the field is excluded (`regex:"-"`). Callers fold only untagged
+// candidates, mirroring the decoder's exact-tag / fold-field-name split.
+func fieldCandidateName(sf reflect.StructField) (name string, opts map[string]string, tagged, skip bool) {
 	// required is a decode-side presence flag; encoding always emits the field's
 	// actual value, so it is irrelevant here.
 	tagName, opts, _, skip := parseFieldTag(sf)
 	if skip {
-		return "", nil, true
+		return "", nil, false, true
 	}
 	if tagName == "" {
-		return sf.Name, opts, false
+		return sf.Name, opts, false, false
 	}
-	return tagName, opts, false
+	return tagName, opts, true, false
 }
 
 // validateEncodeField rejects, at construction time, a mapped field whose type

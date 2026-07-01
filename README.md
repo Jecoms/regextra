@@ -535,7 +535,7 @@ name, ok := regextra.FindNamed(re, "Alice 30", "name")  // "Alice", true
 - ✅ **Named group extraction** - Extract groups by name without index juggling
 - ✅ **Map-based access** - Get all named groups in one call
 - ✅ **Struct unmarshaling** - Type-safe extraction with automatic conversion
-- ✅ **Typed round-trip** - `Encoder[T]` renders a struct back to a string via a reversible template
+- ✅ **Typed round-trip** - `Encoder[T]` renders a struct back to a string, derived by inverting the decoder's own compiled pattern (no separate template to keep in sync)
 - ✅ **Safe by default** - Built-in nil checks, returns empty values on no match
 - ✅ **Zero dependencies** - Only depends on Go's standard library
 - ✅ **Pay for what you use** - Unused functions are dead-code-eliminated at link time, so importing the package costs nothing for symbols you don't call
