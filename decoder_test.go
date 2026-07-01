@@ -29,6 +29,30 @@ func TestCompile_simpleStruct(t *testing.T) {
 	}
 }
 
+func TestDecoder_Regexp(t *testing.T) {
+	type P struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	d, err := rx.Compile[P](`(?P<name>\w+) is (?P<age>\d+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	re := d.Regexp()
+	if re == nil {
+		t.Fatal("Regexp() = nil, want the compiled pattern")
+	}
+	if re.String() != d.Pattern() {
+		t.Errorf("Regexp().String() = %q, want Pattern() %q", re.String(), d.Pattern())
+	}
+	// The returned pattern is usable for the caller's own match-finding.
+	got := re.FindAllString("bob is 30 alice is 25", -1)
+	want := []string{"bob is 30", "alice is 25"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FindAllString via Regexp() = %v, want %v", got, want)
+	}
+}
+
 func TestCompile_fieldNameFallback(t *testing.T) {
 	type P struct {
 		Name string // no tag — should match group "name" via case-insensitive fallback

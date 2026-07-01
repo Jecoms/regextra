@@ -339,6 +339,18 @@ func (d *Decoder[T]) Pattern() string {
 	return d.pattern
 }
 
+// Regexp returns the compiled [*regexp.Regexp] this Decoder built from its
+// pattern, so callers can reuse it for their own match-finding (for example
+// [regexp.Regexp.FindAllIndex] or custom iteration) without recompiling.
+//
+// The returned pointer is shared with the Decoder. Its exported methods are
+// read-only and safe for concurrent use, but callers must not mutate shared
+// state on it — in particular do not call [regexp.Regexp.Longest], which
+// changes the receiver's matching semantics and would affect the Decoder too.
+func (d *Decoder[T]) Regexp() *regexp.Regexp {
+	return d.re
+}
+
 // decode walks the precomputed field plan against a single match and writes the
 // values into rv (the addressable reflect.Value of a T). It is a thin wrapper
 // over the shared runDecodePlan core, which the [Unmarshal] / [UnmarshalAll]
