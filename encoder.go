@@ -287,7 +287,9 @@ func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, b
 // its `regex:"name"` tag name when set, otherwise its own field name — plus the
 // parsed tag options and whether the field is excluded (`regex:"-"`).
 func fieldCandidateName(sf reflect.StructField) (name string, opts map[string]string, skip bool) {
-	tagName, opts, skip := parseFieldTag(sf)
+	// required is a decode-side presence flag; encoding always emits the field's
+	// actual value, so it is irrelevant here.
+	tagName, opts, _, skip := parseFieldTag(sf)
 	if skip {
 		return "", nil, true
 	}
@@ -413,6 +415,17 @@ func encodeFieldValue(field reflect.Value, opts map[string]string) (string, erro
 			return m.MarshalRegex()
 		}
 		return encodeFieldValue(field.Elem(), opts)
+	}
+
+	// 0b. Interface fields: a nil interface (e.g. a field statically typed as
+	//     encoding.TextMarshaler or RegexMarshaler holding no value) has no
+	//     concrete value to render, so it is an error mirroring the nil-pointer
+	//     case above — otherwise the type-assertions below yield ok=false and it
+	//     falls through to the kind-switch default with a misleading
+	//     "unsupported field type: interface". A non-nil interface passes
+	//     through to the marshaler checks / kind switch on its dynamic value.
+	if field.Kind() == reflect.Interface && field.IsNil() {
+		return "", fmt.Errorf("cannot encode nil interface of type %s", field.Type())
 	}
 
 	// 1. RegexMarshaler wins for non-pointer fields — the package-specific hook

@@ -1,6 +1,7 @@
 package regextra_test
 
 import (
+	"encoding"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -219,6 +220,35 @@ func TestEncode_nilPointerErrors(t *testing.T) {
 	}
 	if ee.Field != "Age" || ee.Group != "age" {
 		t.Errorf("EncodeError = %+v, want Field=Age Group=age", ee)
+	}
+}
+
+// A field whose static type is an interface implementing encoding.TextMarshaler
+// passes encodableType at construction, but a nil value has no concrete value to
+// render. Encode must surface a nil-style *EncodeError (mirroring the nil-pointer
+// path) rather than falling through to the kind-switch default with a misleading
+// "unsupported field type: interface".
+func TestEncode_nilInterfaceErrors(t *testing.T) {
+	type M struct {
+		V encoding.TextMarshaler `regex:"v"`
+	}
+	e := rx.MustNewEncoder[M](`{v}`)
+	_, err := e.Encode(M{}) // V is a nil interface
+	if err == nil {
+		t.Fatal("Encode of nil interface field returned nil, want error")
+	}
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("error %v is not an *EncodeError", err)
+	}
+	if ee.Field != "V" || ee.Group != "v" {
+		t.Errorf("EncodeError = %+v, want Field=V Group=v", ee)
+	}
+	if strings.Contains(err.Error(), "unsupported field type") {
+		t.Errorf("nil interface produced fallthrough error %q, want nil-style message", err.Error())
+	}
+	if !strings.Contains(err.Error(), "nil interface") {
+		t.Errorf("error %q does not mention nil interface", err.Error())
 	}
 }
 
