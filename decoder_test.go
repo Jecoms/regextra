@@ -434,6 +434,33 @@ func ExampleDecoder_Iter() {
 	// Bob/25
 }
 
+func ExampleDecoder_Pattern() {
+	type Entry struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	dec := rx.MustCompile[Entry](`(?P<name>\w+) is (?P<age>\d+)`)
+	// Pattern returns the regex source the Decoder was compiled from.
+	fmt.Println(dec.Pattern())
+	// Output: (?P<name>\w+) is (?P<age>\d+)
+}
+
+func ExampleDecoder_Regexp() {
+	type Entry struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	dec := rx.MustCompile[Entry](`(?P<name>\w+) is (?P<age>\d+)`)
+	// Regexp exposes the compiled *regexp.Regexp for your own match-finding,
+	// without recompiling the pattern. Treat it as read-only.
+	for _, m := range dec.Regexp().FindAllString("Alice is 30 and Bob is 25", -1) {
+		fmt.Println(m)
+	}
+	// Output:
+	// Alice is 30
+	// Bob is 25
+}
+
 // ── Iter ──────────────────────────────────────────────────────────────────────
 
 func TestDecoder_Iter_yieldsEveryMatch(t *testing.T) {
