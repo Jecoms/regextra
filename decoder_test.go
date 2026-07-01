@@ -219,7 +219,118 @@ func TestCompile_layoutOnPointerTimeField(t *testing.T) {
 	}
 }
 
+// ── Compile: sentinel categorization ──────────────────────────────────────────
+
+func TestCompile_invalidPatternIsSentinel(t *testing.T) {
+	type P struct {
+		X string `regex:"x"`
+	}
+	_, err := rx.Compile[P](`[unclosed`)
+	if !errors.Is(err, rx.ErrInvalidPattern) {
+		t.Errorf("errors.Is(err, ErrInvalidPattern) = false, want true (err = %v)", err)
+	}
+	if errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("errors.Is(err, ErrInvalidStruct) = true, want false — a bad pattern is not a struct problem (err = %v)", err)
+	}
+	// The regexp compile cause stays reachable alongside the sentinel.
+	if !strings.Contains(err.Error(), "missing closing ]") {
+		t.Errorf("error = %q, want it to preserve the underlying regexp cause", err.Error())
+	}
+}
+
+func TestCompile_invalidStructIsSentinel(t *testing.T) {
+	type withDefault struct {
+		Age int `regex:"age,default=notanumber"`
+	}
+	tests := []struct {
+		name    string
+		compile func() error
+	}{
+		{"notAStruct", func() error {
+			_, err := rx.Compile[string](`(?P<x>\w+)`)
+			return err
+		}},
+		{"undeclaredGroup", func() error {
+			type P struct {
+				Name string `regex:"missing"`
+			}
+			_, err := rx.Compile[P](`(?P<name>\w+)`)
+			return err
+		}},
+		{"badDefault", func() error {
+			_, err := rx.Compile[withDefault](`(?P<age>\d+)`)
+			return err
+		}},
+		{"layoutOnNonTime", func() error {
+			type P struct {
+				Name string `regex:"name,layout=2006-01-02"`
+			}
+			_, err := rx.Compile[P](`(?P<name>\w+)`)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.compile()
+			if !errors.Is(err, rx.ErrInvalidStruct) {
+				t.Errorf("errors.Is(err, ErrInvalidStruct) = false, want true (err = %v)", err)
+			}
+			if errors.Is(err, rx.ErrInvalidPattern) {
+				t.Errorf("errors.Is(err, ErrInvalidPattern) = true, want false — a struct problem is not a pattern problem (err = %v)", err)
+			}
+		})
+	}
+}
+
+func TestCompile_badDefaultPreservesUnderlyingCause(t *testing.T) {
+	type P struct {
+		Age int `regex:"age,default=notanumber"`
+	}
+	_, err := rx.Compile[P](`(?P<age>\d+)`)
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Fatalf("errors.Is(err, ErrInvalidStruct) = false, want true (err = %v)", err)
+	}
+	// The two-%w wrap keeps both the sentinel and the conversion cause reachable.
+	if !strings.Contains(err.Error(), "does not convert") {
+		t.Errorf("error = %q, want it to preserve the conversion detail", err.Error())
+	}
+}
+
+func TestCompile_sentinelDoesNotLeakFromUnmarshal(t *testing.T) {
+	// The lenient Unmarshal path (strict=false) tolerates the same bad-tag
+	// shapes Compile rejects, so neither Compile sentinel should ever surface.
+	type P struct {
+		Name string `regex:"missing"` // references an undeclared group
+	}
+	var p P
+	re := regexp.MustCompile(`(?P<name>\w+)`)
+	err := rx.Unmarshal(re, "Alice", &p)
+	if errors.Is(err, rx.ErrInvalidStruct) || errors.Is(err, rx.ErrInvalidPattern) {
+		t.Errorf("Unmarshal surfaced a Compile sentinel (err = %v); sentinels are Compile-only", err)
+	}
+}
+
 // ── MustCompile ───────────────────────────────────────────────────────────────
+
+func TestMustCompile_recoversSentinel(t *testing.T) {
+	type P struct {
+		X string `regex:"x"`
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("MustCompile did not panic on invalid pattern")
+		}
+		err, ok := r.(error)
+		if !ok {
+			t.Fatalf("recovered value is %T, want error", r)
+		}
+		if !errors.Is(err, rx.ErrInvalidPattern) {
+			t.Errorf("recovered errors.Is(err, ErrInvalidPattern) = false, want true (err = %v)", err)
+		}
+	}()
+	_ = rx.MustCompile[P](`[unclosed`)
+}
 
 func TestMustCompile_panicsOnBadPattern(t *testing.T) {
 	type P struct {

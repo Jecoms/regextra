@@ -36,7 +36,7 @@ The forward look is tracked in the [issue tracker](https://github.com/Jecoms/reg
 - Adding a new exported function, type, or method.
 - Adding a new option to the `regex:"..."` struct tag grammar.
 - Accepting additional field types in `Unmarshal` / `UnmarshalAll` / `Decoder`.
-- Changing the wording of error messages. Do not pattern-match on `err.Error()` strings; compare against the exported sentinels (e.g. `regextra.ErrNoMatch` with `errors.Is`) or recover the typed `*regextra.DecodeError` with `errors.As` instead.
+- Changing the wording of error messages. Do not pattern-match on `err.Error()` strings; compare against the exported sentinels (e.g. `regextra.ErrNoMatch`, `regextra.ErrInvalidPattern`, `regextra.ErrInvalidStruct` with `errors.Is`) or recover the typed `*regextra.DecodeError` with `errors.As` instead.
 
 ## Usage
 
@@ -390,6 +390,19 @@ people, _ := personDecoder.All("Alice is 30 and Bob is 25")
 
 This is the strictness you want for "compile once" — typos fail at startup, not at first request.
 
+Each failure is categorized by a wrapped sentinel so you can branch on the kind with `errors.Is` instead of parsing the message: `regextra.ErrInvalidPattern` for the bad-regex case, and `regextra.ErrInvalidStruct` for the four destination-shape cases. `MustCompile` panics with the same wrapped error. The sentinels are `Compile`-only — the lenient `Unmarshal` / `UnmarshalAll` path never surfaces them.
+
+```go
+if _, err := regextra.Compile[Person](pattern); err != nil {
+    switch {
+    case errors.Is(err, regextra.ErrInvalidPattern):
+        // bad regular expression
+    case errors.Is(err, regextra.ErrInvalidStruct):
+        // struct/tag shape problem
+    }
+}
+```
+
 `Decoder.One` returns `regextra.ErrNoMatch` (compare with `errors.Is`) when there's no match. Other errors indicate per-field conversion failure on a successful match.
 
 **Typed conversion failures.** When a matched group value can't be converted to its field type, every decode entrypoint (`Unmarshal`, `UnmarshalAll`, `Decoder.One`/`All`/`Iter`) returns a `*regextra.DecodeError` carrying the field name, capture group, raw value, target type, and wrapped cause. Recover it with `errors.As` to branch without parsing message text:
@@ -410,7 +423,7 @@ if errors.As(err, &rge) {
 }
 ```
 
-Constructed errors are prefixed with the entrypoint that produced them (`regextra.Unmarshal:`, `regextra.Decoder.One:`, …); the bare `regextra:` prefix is reserved for package-level sentinels like `ErrNoMatch`. Treat these prefixes as informational — compare against the sentinel or the `*DecodeError` type, not the string.
+Constructed errors are prefixed with the entrypoint that produced them (`regextra.Unmarshal:`, `regextra.Decoder.One:`, …); the bare `regextra:` prefix is reserved for package-level sentinels like `ErrNoMatch`, `ErrInvalidPattern`, and `ErrInvalidStruct`. Treat these prefixes as informational — compare against the sentinel or the `*DecodeError` type, not the string.
 
 **Streaming with `Decoder.Iter`:**
 

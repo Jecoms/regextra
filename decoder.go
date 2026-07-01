@@ -14,6 +14,21 @@ import (
 // match" from genuine decoding failures.
 var ErrNoMatch = errors.New("regextra: no match")
 
+// ErrInvalidPattern and ErrInvalidStruct categorize [Compile] (and therefore
+// [MustCompile]) failures so callers can branch on the failure kind with
+// errors.Is rather than parsing the message. ErrInvalidPattern wraps a bad
+// regular expression; ErrInvalidStruct wraps every destination-shape problem
+// (T is not a struct, a field references an undeclared group, a `default=`
+// value does not convert, or `layout=` sits on a non-time.Time field). Each
+// wrapped error keeps its descriptive detail — and, where one exists, the
+// underlying cause — reachable via errors.Is/As. Like ErrNoMatch, these
+// sentinels carry the bare `regextra:` prefix reserved for package-level
+// sentinels.
+var (
+	ErrInvalidPattern = errors.New("regextra: invalid pattern")
+	ErrInvalidStruct  = errors.New("regextra: invalid struct")
+)
+
 // Decoder is a typed, regex-bound unmarshaler that caches the reflect plan
 // for T's fields. Compile once, decode many times — eliminates the per-call
 // reflect work that [Unmarshal] does on every invocation.
@@ -75,10 +90,15 @@ type fieldDecoder struct {
 //
 // Once Compile returns nil, the resulting Decoder is fully validated and
 // guaranteed not to produce tag-related errors at decode time.
+//
+// Failures are categorized by wrapped sentinel: the first cause above wraps
+// [ErrInvalidPattern] and the remaining four wrap [ErrInvalidStruct], so
+// callers can branch on the failure kind with errors.Is instead of parsing the
+// message. [MustCompile] panics with the same wrapped error.
 func Compile[T any](pattern string) (*Decoder[T], error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("regextra.Compile: invalid pattern: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidPattern, err)
 	}
 	return compileDecoder[T](pattern, re)
 }
@@ -99,7 +119,7 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 	var zero T
 	rt := reflect.TypeOf(zero)
 	if rt == nil || rt.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("regextra.Compile: T must be a struct type, got %v", rt)
+		return nil, fmt.Errorf("%w: T must be a struct type, got %v", ErrInvalidStruct, rt)
 	}
 
 	// strict=true: the Decoder validates eagerly so a successful Compile
@@ -166,7 +186,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 				// Missing group with no default IS a typo — fail at compile.
 				// With a default, missing group is intentional (the default
 				// always fires). The lenient path skips the field below.
-				return nil, fmt.Errorf("regextra.Compile: field %s references group %q which is not declared on the pattern", sf.Name, groupName)
+				return nil, fmt.Errorf("%w: field %s references group %q which is not declared on the pattern", ErrInvalidStruct, sf.Name, groupName)
 			}
 		}
 
@@ -177,7 +197,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 			if def, ok := opts["default"]; ok {
 				probe := reflect.New(sf.Type).Elem()
 				if err := setFieldValue(probe, def, opts); err != nil {
-					return nil, fmt.Errorf("regextra.Compile: field %s default %q does not convert to %v: %w", sf.Name, def, sf.Type, err)
+					return nil, fmt.Errorf("%w: field %s default %q does not convert to %v: %w", ErrInvalidStruct, sf.Name, def, sf.Type, err)
 				}
 			}
 
@@ -188,7 +208,7 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 					ft = ft.Elem()
 				}
 				if ft != timeTimeType {
-					return nil, fmt.Errorf("regextra.Compile: field %s has `layout=` option but is %v, not time.Time", sf.Name, sf.Type)
+					return nil, fmt.Errorf("%w: field %s has `layout=` option but is %v, not time.Time", ErrInvalidStruct, sf.Name, sf.Type)
 				}
 			}
 		}
