@@ -45,6 +45,7 @@ By use case:
   - Pull every named group across all matches (one map per match):
     [NamedGroupsPerMatch], or lazily [NamedGroupsPerMatchSeq]
   - Substitute named-group spans by name: [Replace]
+  - Substitute named-group spans in the first match only: [ReplaceFirst]
   - Substitute named-group spans with a callback over the matched value: [ReplaceFunc]
   - Assert at startup that required groups are declared: [Validate]
   - Decode one match into a struct: [Unmarshal]
@@ -78,6 +79,7 @@ the no-match form that lets the caller continue without a special-case branch.
 	NamedGroupsPerMatch                       []map[string]string{} (empty, not nil)
 	NamedGroupsPerMatchSeq                    iterator yields zero times
 	Replace                                   target returned unchanged
+	ReplaceFirst                              target returned unchanged
 	ReplaceFunc                               target returned unchanged (fn
 	                                          never called)
 	Validate                                  unrelated — checks declarations,
@@ -503,7 +505,37 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 	if len(replacements) == 0 {
 		return target
 	}
-	return replaceNamed(re, target, func(name, _ string) (string, bool) {
+	return replaceNamed(re, target, -1, func(name, _ string) (string, bool) {
+		repl, ok := replacements[name]
+		return repl, ok
+	})
+}
+
+// ReplaceFirst is like [Replace] but substitutes named-group spans only within
+// the first match of re in target; every later match, and all text outside the
+// first match, passes through byte-for-byte unchanged. Use it when only the
+// leading occurrence should be rewritten — e.g. redacting the first token on a
+// line while leaving the rest intact.
+//
+// Within that first match it follows [Replace]'s rules exactly: a group absent
+// from replacements passes through, non-participating groups are skipped, and on
+// overlap the outermost span encountered first wins.
+//
+// On no match, returns target unchanged. See the package doc's "No-match
+// behavior" section for the full cross-API contract.
+//
+// Example:
+//
+//	re := regexp.MustCompile(`(?P<user>\w+)@(?P<domain>[\w.]+)`)
+//	out := regextra.ReplaceFirst(re, "alice@example.com bob@other.org", map[string]string{
+//	    "domain": "redacted",
+//	})
+//	// out = "alice@redacted bob@other.org"
+func ReplaceFirst(re *regexp.Regexp, target string, replacements map[string]string) string {
+	if len(replacements) == 0 {
+		return target
+	}
+	return replaceNamed(re, target, 1, func(name, _ string) (string, bool) {
 		repl, ok := replacements[name]
 		return repl, ok
 	})
@@ -539,22 +571,27 @@ func Replace(re *regexp.Regexp, target string, replacements map[string]string) s
 //	})
 //	// out = "card ************1111 ok"
 func ReplaceFunc(re *regexp.Regexp, target string, fn func(group, match string) string) string {
-	return replaceNamed(re, target, func(name, matched string) (string, bool) {
+	return replaceNamed(re, target, -1, func(name, matched string) (string, bool) {
 		return fn(name, matched), true
 	})
 }
 
-// replaceNamed is the shared substitution engine behind [Replace] and
-// [ReplaceFunc]. It walks every match of re over target and, for each
-// participating named group, asks replFor for the replacement; replFor reports
-// false to pass the group's matched text through unchanged.
+// replaceNamed is the shared substitution engine behind [Replace],
+// [ReplaceFirst] and [ReplaceFunc]. It walks up to limit matches of re over
+// target and, for each participating named group, asks replFor for the
+// replacement; replFor reports false to pass the group's matched text through
+// unchanged. limit is passed straight to FindAllStringSubmatchIndex: -1
+// processes every match ([Replace]/[ReplaceFunc]), 1 processes only the first
+// ([ReplaceFirst]). Text after the last processed match is copied through
+// verbatim by the trailing cursor write, so a capped limit leaves the remainder
+// untouched for free.
 //
 // replFor is resolved at apply time and only for spans that actually win the
 // overlap rule, so a group skipped by an enclosing outermost span never reaches
 // it — [ReplaceFunc] therefore never invokes its callback for an inner group it
 // suppresses, and [Replace] does its map lookup only where it matters.
-func replaceNamed(re *regexp.Regexp, target string, replFor func(name, matched string) (string, bool)) string {
-	matches := re.FindAllStringSubmatchIndex(target, -1)
+func replaceNamed(re *regexp.Regexp, target string, limit int, replFor func(name, matched string) (string, bool)) string {
+	matches := re.FindAllStringSubmatchIndex(target, limit)
 	if len(matches) == 0 {
 		return target
 	}
