@@ -428,6 +428,18 @@ for v, err := range personDecoder.Iter(input) {
 
 `Iter` returns an `iter.Seq2[T, error]` (Go 1.23+ range-over-func). Use it for streaming-style consumption (log parsers, scrapers) where you don't want to allocate the full slice up-front. **~37% faster and ~50% fewer allocations** than `UnmarshalAll` on a 100-line corpus, since Iter skips the slice allocation entirely. Match-finding still happens in one regex call (Go's stdlib doesn't expose a streaming-find API), but the per-match decode work IS lazy — `break` in the range body avoids decoding the remaining matches.
 
+**Accessors.** A `Decoder` exposes the pattern it was compiled from, so you don't have to keep a copy alongside it:
+
+- `Pattern() string` returns the regex source string — handy for logging and debugging.
+- `Regexp() *regexp.Regexp` returns the underlying compiled `*regexp.Regexp`, so you can reuse it for your own match-finding (e.g. `FindAllIndex`, custom iteration) without recompiling. The returned pointer is shared with the `Decoder`: its exported methods are read-only and safe for concurrent use, but do not mutate shared matcher state on it — in particular don't call `Longest()`, which changes matching semantics for the `Decoder` too.
+
+```go
+dec := regextra.MustCompile[Person](`(?P<name>\w+) is (?P<age>\d+)`)
+dec.Pattern()          // "(?P<name>\\w+) is (?P<age>\\d+)"
+dec.Regexp().FindAllString("Alice is 30 and Bob is 25", -1)
+// []string{"Alice is 30", "Bob is 25"}
+```
+
 `Decoder` instances are safe for concurrent use.
 
 ## Why regextra?
