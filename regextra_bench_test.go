@@ -320,6 +320,32 @@ func BenchmarkReplace(b *testing.B) {
 	benchCase(b, "longReplacement", func() { sinkStr = rx.Replace(bnRepEmailRe, bnRepMulti100In, bnRepLongMap) }) // Builder growth
 }
 
+// ── ReplaceFirst ────────────────────────────────────────────────────────────
+//
+// Same span engine as Replace, but limit=1 stops the scan after the first
+// match: only that match's named spans are collected, sorted, and written,
+// after which the shared trailing-cursor write copies everything past the first
+// match — every later match and all outside text — byte-for-byte. So unlike
+// Replace, cost is bounded by the first match's group count plus the length of
+// the verbatim remainder, not by total match count. The multi-match and
+// largeManyMatches cases exercise that remainder copy; the early-return and
+// per-match edge cases mirror Replace's. Reuses Replace's bnRep* fixtures.
+func BenchmarkReplaceFirst(b *testing.B) {
+	// representative — one match, then a batch where only the first is rewritten.
+	benchCase(b, "singleGroup", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepSingleIn, bnRepDomainMap) })
+	benchCase(b, "twoGroups", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepSingleIn, bnRepBothMap) })
+	benchCase(b, "matches100", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepMulti100In, bnRepDomainMap) }) // first replaced, 99 + tail verbatim
+	// edge — the two early returns and the loop-with-zero-spans passthrough.
+	benchCase(b, "emptyReplacements", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepSingleIn, bnRepEmptyMap) }) // len==0 early return
+	benchCase(b, "noMatch", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepNoMatchIn, bnRepDomainMap) })         // no matches early return
+	benchCase(b, "groupsNotInMap", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepSingleIn, bnRepMissMap) })     // matches, but 0 spans appended
+	// pathological — overlap (outermost wins) and optional non-participating group.
+	benchCase(b, "nestedGroups", func() { sinkStr = rx.ReplaceFirst(bnRepNestRe, bnRepSingleIn, bnRepNestMap) })
+	benchCase(b, "optionalNonParticipating", func() { sinkStr = rx.ReplaceFirst(bnRepOptRe, bnRepOptIn, bnRepOptMap) }) // bang group index -1 skip
+	// scaling — verbatim-remainder copy dominates as match count grows.
+	benchCase(b, "largeManyMatches", func() { sinkStr = rx.ReplaceFirst(bnRepEmailRe, bnRepMulti1200In, bnRepDomainMap) })
+}
+
 // ── ReplaceFunc ─────────────────────────────────────────────────────────────
 //
 // Same span engine as Replace, but the replacement is computed per applied span
