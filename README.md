@@ -3,7 +3,6 @@
 # regextra
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jecoms/regextra/v2.svg)](https://pkg.go.dev/github.com/jecoms/regextra/v2)
-[![Go Report Card](https://goreportcard.com/badge/github.com/jecoms/regextra/v2)](https://goreportcard.com/report/github.com/jecoms/regextra/v2)
 [![Tests](https://github.com/jecoms/regextra/actions/workflows/test.yml/badge.svg)](https://github.com/jecoms/regextra/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
