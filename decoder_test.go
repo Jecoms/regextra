@@ -971,6 +971,30 @@ func TestCompile_dashFieldNeedsNoGroup(t *testing.T) {
 	}
 }
 
+// A struct whose every field is excluded from decoding produces an empty (but
+// non-nil, since buildDecodePlan pre-sizes the slice) decode plan. Compile must
+// still succeed and decoding a matching input must return a zero-value struct
+// — pins the empty-plan invariant introduced by the plan pre-sizing.
+func TestDecoder_allFieldsSkippedDecodesToZeroValue(t *testing.T) {
+	type Opaque struct {
+		Kind   string `regex:"-"`
+		Count  int    `regex:"-"`
+		hidden string //nolint:unused // unexported: skipped by the plan builder
+	}
+	d, err := rx.Compile[Opaque](`(?P<kind>\w+):(?P<count>\d+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want nil (all-skipped struct must compile)", err)
+	}
+
+	got, err := d.One("widget:42")
+	if err != nil {
+		t.Fatalf("One() error = %v", err)
+	}
+	if got != (Opaque{}) {
+		t.Errorf("One() = %+v, want zero value (no field enters the decode plan)", got)
+	}
+}
+
 // parseFieldTag feeds the Decoder/Compile path too, so the same forward-compat
 // no-ops must hold there. Parsing happens once at compile time and One/All/Iter
 // share that result, so a single One probe is sufficient parity coverage.

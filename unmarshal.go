@@ -415,8 +415,9 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		// the win is not per call but per plan entry: nil opts avoids an empty
 		// map retained for the life of the process by every cached plan.
 		// Consumers already treat nil opts as "no options" (nil-map reads are
-		// zero-value). The size hint (comma count = piece count) matches the
-		// old len(parts)-1.
+		// zero-value). The size hint (comma count = option-piece count, since
+		// n commas split into n+1 pieces and the first piece is the name)
+		// matches the old len(parts)-1.
 		if opts == nil {
 			opts = make(map[string]string, strings.Count(tag, ","))
 		}
