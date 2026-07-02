@@ -45,7 +45,7 @@ import (
 	"strings"
 	"testing"
 
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 )
 
 // ── Typed sinks ───────────────────────────────────────────────────────────────

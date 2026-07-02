@@ -2,8 +2,8 @@
 
 # regextra
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/jecoms/regextra.svg)](https://pkg.go.dev/github.com/jecoms/regextra)
-[![Go Report Card](https://goreportcard.com/badge/github.com/jecoms/regextra)](https://goreportcard.com/report/github.com/jecoms/regextra)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jecoms/regextra/v2.svg)](https://pkg.go.dev/github.com/jecoms/regextra/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jecoms/regextra/v2)](https://goreportcard.com/report/github.com/jecoms/regextra/v2)
 [![Tests](https://github.com/jecoms/regextra/actions/workflows/test.yml/badge.svg)](https://github.com/jecoms/regextra/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -12,16 +12,18 @@ Extensions to Go's regexp package for easier handling of named capture groups.
 ## Installation
 
 ```bash
-go get github.com/jecoms/regextra@latest
+go get github.com/jecoms/regextra/v2@latest
 ```
 
 ## Stability
 
-`regextra` is at v1 and follows strict SemVer:
+`regextra` is at v2 and follows strict SemVer. Import it at the `/v2` module path (`github.com/jecoms/regextra/v2`); the v1 line is frozen at the `v1.x` tags.
 
-- Breaking changes ship in the next major version (`v2.0.0`), never in a minor or patch.
-- Minor releases (`v1.x.0`) add features.
-- Patch releases (`v1.x.y`) are fixes only.
+- Breaking changes ship in the next major version (`v3.0.0`), never in a minor or patch.
+- Minor releases (`v2.x.0`) add features.
+- Patch releases (`v2.x.y`) are fixes only.
+
+v2.0.0 collects the behavior changes made since v1.0.0; see [CHANGELOG.md](./CHANGELOG.md) for the exhaustive list, with every breaking entry marked.
 
 The forward look is tracked in the [issue tracker](https://github.com/Jecoms/regextra/issues).
 
@@ -46,7 +48,7 @@ package main
 import (
     "fmt"
     "regexp"
-    "github.com/jecoms/regextra"
+    "github.com/jecoms/regextra/v2"
 )
 
 func main() {
@@ -288,7 +290,7 @@ type LogLine struct {
 - **Unknown `key=value` pairs are preserved, not rejected.** Adding a new option key in a future minor release is not a breaking change. Don't rely on the parser rejecting unknown keys — pin a minor version range if you need a specific recognized set.
 - **Lone tokens (no `=`) other than the recognized `required` flag are silently ignored.** Today, `regex:"name,foo"` parses as `(name="name")` — the `foo` token is dropped. The slot is reserved for future flag-style options (`required` claimed the first one — see the options table above); a later minor may start recognizing further lone tokens. Don't rely on an unrecognized lone token remaining inert.
 
-See the package doc's **Tag grammar** section on [pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra) for the canonical statement.
+See the package doc's **Tag grammar** section on [pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra/v2) for the canonical statement.
 
 ### `RegexUnmarshaler` interface
 

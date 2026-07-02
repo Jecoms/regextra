@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 )
 
 // mustDeriveEncoder derives an Encoder from a compiled Decoder or panics —
