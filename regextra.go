@@ -233,8 +233,19 @@ import (
 //	name, ok := regextra.FindNamed(re, "Alice 30", "name")
 //	// name = "Alice", ok = true
 func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
-	idxs := subexpIndexes(re, groupName)
-	if len(idxs) == 0 {
+	// Scan SubexpNames directly instead of materializing subexpIndexes' []int
+	// — the occurrence indices are only ever walked in declaration order, so
+	// two passes over the (already-cached) names slice make FindNamed
+	// allocation-free apart from the regexp engine's own work.
+	names := re.SubexpNames()
+	declared := false
+	for i := 1; i < len(names); i++ {
+		if names[i] == groupName {
+			declared = true
+			break
+		}
+	}
+	if !declared {
 		return "", false
 	}
 
@@ -252,9 +263,12 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 	// value stays "" — matching FindStringSubmatch's "" for a declared but
 	// non-participating group.
 	value := ""
-	for _, idx := range idxs {
-		if start := loc[2*idx]; start >= 0 {
-			value = target[start:loc[2*idx+1]]
+	for i := 1; i < len(names); i++ {
+		if names[i] != groupName {
+			continue
+		}
+		if start := loc[2*i]; start >= 0 {
+			value = target[start:loc[2*i+1]]
 		}
 	}
 	return value, true
