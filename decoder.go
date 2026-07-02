@@ -174,9 +174,9 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 		if groupName == "" {
 			// No explicit tag — fall back to matching the field name against a
 			// declared group: exact first, then case-insensitively via Unicode
-			// simple-fold (see matchGroupName). A field that matches no group
-			// and has no default is treated as a typo and, under strict, fails
-			// the build below.
+			// simple case folding (see matchGroupName). A field that matches
+			// no group and has no default is treated as a typo and, under
+			// strict, fails the build below.
 			groupName = matchGroupName(re, sf.Name)
 		}
 
@@ -249,8 +249,9 @@ func subexpIndexes(re *regexp.Regexp, name string) []int {
 }
 
 // matchGroupName returns the declared group name on re that matches fieldName
-// (case-insensitive), or "" if no group matches. Used as a fallback when a
-// field has no explicit `regex:"..."` tag.
+// (exactly, then case-insensitively via Unicode simple case folding), or ""
+// if no group matches. Used as a fallback when a field has no explicit
+// `regex:"..."` tag.
 func matchGroupName(re *regexp.Regexp, fieldName string) string {
 	if idx := re.SubexpIndex(fieldName); idx != -1 {
 		return fieldName

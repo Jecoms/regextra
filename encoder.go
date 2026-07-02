@@ -364,9 +364,9 @@ func notInvertibleError(construct string) error {
 // resolveEncodeField maps a capture-group name to an exported, non-excluded field
 // of rt, using the same field-mapping rules the decode side applies: a field's
 // `regex:"name"` tag matched exactly, otherwise the field's own name matched
-// exactly first and then case-insensitively via Unicode simple-fold (mirroring
-// matchGroupName). Returns the field index, its parsed tag options, and true on
-// a match; ("", nil, false) when no field resolves.
+// exactly first and then case-insensitively via Unicode simple case folding
+// (mirroring matchGroupName). Returns the field index, its parsed tag options,
+// and true on a match; ("", nil, false) when no field resolves.
 func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, bool) {
 	// Exact pass first so an exact name never loses to an earlier fold sibling.
 	for i := range rt.NumField() {
