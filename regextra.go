@@ -60,10 +60,18 @@ By use case:
 
 # Performance
 
-For one-shot extraction, [Unmarshal] does its reflect work per call. For repeated
-decode of the same shape (log parsers, request handlers, config readers), use
-[Compile] / [Decoder] — it caches the per-field plan and benchmarks at roughly
-half the time and far fewer allocations than [Unmarshal] on equivalent input.
+Every decode path caches its reflect work. [Unmarshal] / [UnmarshalAll] build
+the per-field decode plan on first use of a (pattern, struct type) pair and
+reuse it from an internal package-level cache on later calls, so repeated
+free-function decode pays only a cache lookup on top of the match itself. The
+cache lives for the process and is never evicted — the same trade
+encoding/json makes for its field cache: entries are small (they do not
+retain the compiled regexp), and real workloads use a bounded set of patterns
+and types. [Compile] / [Decoder] remains the right tool for repeated decode
+of the same shape (log parsers, request handlers, config readers): the
+Decoder carries its own plan, so it skips even the cache lookup, and its
+strict compile-time validation surfaces tag typos at startup rather than
+never (the lenient free functions skip misbound fields silently).
 [Decoder.Iter] further skips the slice allocation entirely for streaming
 consumers.
 

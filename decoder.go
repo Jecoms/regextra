@@ -142,8 +142,9 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 // parsed tag options, returning the per-field decode plan that runDecodePlan
 // executes against a match. It is the single plan-construction path shared by
 // the [Decoder] (compiled once via compileDecoder) and the [Unmarshal] /
-// [UnmarshalAll] free functions (built fresh per call) — one set of
-// field-mapping semantics, so the two paths can't drift again.
+// [UnmarshalAll] free functions (cached per (pattern, struct type) pair via
+// getDecodePlan) — one set of field-mapping semantics, so the two paths can't
+// drift again.
 //
 // strict selects the validation posture. The Decoder passes strict=true and any
 // of three checks fails the build, so a successful Compile is fully validated:
@@ -266,8 +267,9 @@ func matchGroupName(re *regexp.Regexp, fieldName string) string {
 
 // resolveGroupName reports the capture-group name a field decoded from, for
 // DecodeError.Group. It is computed lazily — only when building a DecodeError —
-// so the name need not be retained per field in the plan (which would cost bytes
-// on every uncached Unmarshal/UnmarshalAll plan build).
+// so the name need not be retained per field in the plan (which would cost
+// bytes in every plan, including every entry the Unmarshal/UnmarshalAll plan
+// cache keeps for the life of the process).
 //
 // When the field mapped to a declared group (groupIndexes non-empty), the name
 // is recovered from the regexp's cached SubexpNames without allocating; any

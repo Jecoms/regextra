@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -2217,5 +2218,145 @@ func TestUnmarshal_untaggedFieldNoMatchingGroupSkipped(t *testing.T) {
 	}
 	if got.Missing != "untouched" {
 		t.Errorf("Missing = %q, want it left unchanged at %q", got.Missing, "untouched")
+	}
+}
+
+// Repeated and interleaved Unmarshal/UnmarshalAll calls across distinct
+// (pattern, struct type) combinations must each decode per their own pattern
+// and their own type — reuse of one pair's decode plan must never leak into
+// another pair that shares only the pattern or only the type.
+func TestUnmarshal_repeatedCallsDistinctPatternsAndTypes(t *testing.T) {
+	type person struct {
+		Name string
+		Age  int
+	}
+	// Same shape, different bindings: Name deliberately reads the age group,
+	// Age is excluded. Same pattern as person's — only the type distinguishes them.
+	type flipped struct {
+		Name string `regex:"age"`
+		Age  int    `regex:"-"`
+	}
+
+	reBoth := regexp.MustCompile(`(?P<name>\w+) is (?P<age>\d+)`)
+	// Same type as person's calls, different pattern: only name is declared,
+	// so Age must stay zero — a leaked plan from reBoth would populate it.
+	reNameOnly := regexp.MustCompile(`(?P<name>\w+) is \d+`)
+
+	// Two passes so the second pass repeats every (pattern, type) combination
+	// after all of them have already been used once, interleaved throughout.
+	for pass := 1; pass <= 2; pass++ {
+		var p person
+		if err := rx.Unmarshal(reBoth, "Alice is 30", &p); err != nil {
+			t.Fatalf("pass %d: Unmarshal(person, both groups) error = %v", pass, err)
+		}
+		if p != (person{Name: "Alice", Age: 30}) {
+			t.Errorf("pass %d: person = %+v, want {Name:Alice Age:30}", pass, p)
+		}
+
+		var f flipped
+		if err := rx.Unmarshal(reBoth, "Alice is 30", &f); err != nil {
+			t.Fatalf("pass %d: Unmarshal(flipped, both groups) error = %v", pass, err)
+		}
+		if f != (flipped{Name: "30", Age: 0}) {
+			t.Errorf("pass %d: flipped = %+v, want {Name:30 Age:0}", pass, f)
+		}
+
+		var q person
+		if err := rx.Unmarshal(reNameOnly, "Alice is 30", &q); err != nil {
+			t.Fatalf("pass %d: Unmarshal(person, name-only) error = %v", pass, err)
+		}
+		if q != (person{Name: "Alice", Age: 0}) {
+			t.Errorf("pass %d: person via name-only pattern = %+v, want {Name:Alice Age:0}", pass, q)
+		}
+
+		var all []person
+		if err := rx.UnmarshalAll(reBoth, "Alice is 30 and Bob is 25", &all); err != nil {
+			t.Fatalf("pass %d: UnmarshalAll(person, both groups) error = %v", pass, err)
+		}
+		want := []person{{Name: "Alice", Age: 30}, {Name: "Bob", Age: 25}}
+		if !reflect.DeepEqual(all, want) {
+			t.Errorf("pass %d: UnmarshalAll = %+v, want %+v", pass, all, want)
+		}
+	}
+}
+
+// Two independently compiled *regexp.Regexp values with the same pattern must
+// both decode correctly — whichever instance is used first, the other's calls
+// (including UnmarshalAll's) behave identically.
+func TestUnmarshal_equalPatternDistinctRegexpInstances(t *testing.T) {
+	type login struct {
+		User string
+		Host string
+	}
+	const pattern = `(?P<user>\w+)@(?P<host>[\w.]+)`
+	re1 := regexp.MustCompile(pattern)
+	re2 := regexp.MustCompile(pattern)
+	if re1 == re2 {
+		t.Fatal("test needs two distinct *regexp.Regexp instances")
+	}
+
+	var a login
+	if err := rx.Unmarshal(re1, "alice@example.com", &a); err != nil {
+		t.Fatalf("Unmarshal(re1) error = %v", err)
+	}
+	if a != (login{User: "alice", Host: "example.com"}) {
+		t.Errorf("via re1 = %+v, want {User:alice Host:example.com}", a)
+	}
+
+	var b login
+	if err := rx.Unmarshal(re2, "bob@internal.test", &b); err != nil {
+		t.Fatalf("Unmarshal(re2) error = %v", err)
+	}
+	if b != (login{User: "bob", Host: "internal.test"}) {
+		t.Errorf("via re2 = %+v, want {User:bob Host:internal.test}", b)
+	}
+
+	var all []login
+	if err := rx.UnmarshalAll(re2, "x@a.test y@b.test", &all); err != nil {
+		t.Fatalf("UnmarshalAll(re2) error = %v", err)
+	}
+	want := []login{{User: "x", Host: "a.test"}, {User: "y", Host: "b.test"}}
+	if !reflect.DeepEqual(all, want) {
+		t.Errorf("UnmarshalAll via re2 = %+v, want %+v", all, want)
+	}
+}
+
+// Concurrent first use of a (pattern, struct type) pair — the struct type is
+// local to this test, so no earlier call has decoded it — must produce correct
+// results from every goroutine. Run under -race in CI, this also proves the
+// decode path's first-call plan construction is race-free.
+func TestUnmarshal_concurrentFirstUse(t *testing.T) {
+	type endpoint struct {
+		Scheme string
+		Host   string
+		Port   int
+	}
+	re := regexp.MustCompile(`(?P<scheme>https?)://(?P<host>[\w.]+):(?P<port>\d+)`)
+	want := endpoint{Scheme: "https", Host: "example.com", Port: 8443}
+
+	const goroutines = 32
+	got := make([]endpoint, goroutines)
+	errs := make([]error, goroutines)
+	var start sync.WaitGroup // gate so all goroutines hit the first decode together
+	start.Add(1)
+	var done sync.WaitGroup
+	for i := range goroutines {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			start.Wait()
+			errs[i] = rx.Unmarshal(re, "https://example.com:8443", &got[i])
+		}()
+	}
+	start.Done()
+	done.Wait()
+
+	for i := range goroutines {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d: Unmarshal() error = %v, want nil", i, errs[i])
+		}
+		if got[i] != want {
+			t.Errorf("goroutine %d: decoded %+v, want %+v", i, got[i], want)
+		}
 	}
 }
