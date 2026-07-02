@@ -404,8 +404,10 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		}
 		// Allocate the options map lazily — only a key=value pair populates it.
 		// A field with just a lone flag (e.g. `name,required`) keeps opts nil,
-		// matching the no-options case (parts==1) and avoiding a per-call,
-		// per-field empty-map allocation on the Unmarshal hot path. Consumers
+		// matching the no-options case (parts==1). parseFieldTag runs only
+		// inside the at-most-once-per-(pattern, type) plan build, so the win
+		// is not per call but per plan entry: nil opts avoids an empty map
+		// retained for the life of the process by every cached plan. Consumers
 		// already treat nil opts as "no options" (nil-map reads are zero-value).
 		if opts == nil {
 			opts = make(map[string]string, len(parts)-1)

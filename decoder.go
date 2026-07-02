@@ -29,9 +29,11 @@ var (
 	ErrInvalidStruct  = errors.New("regextra: invalid struct")
 )
 
-// Decoder is a typed, regex-bound unmarshaler that caches the reflect plan
-// for T's fields. Compile once, decode many times — eliminates the per-call
-// reflect work that [Unmarshal] does on every invocation.
+// Decoder is a typed, regex-bound unmarshaler that carries the reflect plan
+// for T's fields. Compile once, decode many times — [Unmarshal] caches its
+// decode plan per (pattern, struct type) pair too, so the Decoder's remaining
+// edge is skipping the per-call cache lookup, plus the strict compile-time
+// validation below.
 //
 // The decode plan is computed during [Compile]: each exported field of T is
 // mapped to its regex capture group, its tag options are parsed, and any

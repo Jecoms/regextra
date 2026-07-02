@@ -60,14 +60,14 @@ By use case:
 
 # Performance
 
-Every decode path caches its reflect work. [Unmarshal] / [UnmarshalAll] build
-the per-field decode plan on first use of a (pattern, struct type) pair and
-reuse it from an internal package-level cache on later calls, so repeated
-free-function decode pays only a cache lookup on top of the match itself. The
-cache lives for the process and is never evicted — the same trade
-encoding/json makes for its field cache: entries are small (they do not
-retain the compiled regexp), and real workloads use a bounded set of patterns
-and types. [Compile] / [Decoder] remains the right tool for repeated decode
+Every decode path caches its field-mapping reflect work. [Unmarshal] /
+[UnmarshalAll] build the per-field decode plan on first use of a (pattern,
+struct type) pair and reuse it from an internal package-level cache on later
+calls, so repeated free-function decode pays only a cache lookup on top of
+the match itself. The cache lives for the process and is never evicted — the
+same trade encoding/json makes for its field cache: entries are small (they
+do not retain the compiled regexp), and real workloads use a bounded set of
+patterns and types. [Compile] / [Decoder] remains the right tool for repeated decode
 of the same shape (log parsers, request handlers, config readers): the
 Decoder carries its own plan, so it skips even the cache lookup, and its
 strict compile-time validation surfaces tag typos at startup rather than

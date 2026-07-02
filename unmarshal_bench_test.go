@@ -264,11 +264,13 @@ var (
 // ── Unmarshal ─────────────────────────────────────────────────────────────────
 //
 // Cost model per call: argument-validation guard (reflect.Kind checks),
-// FindStringSubmatchIndex, then buildDecodePlan once (parseFieldTag +
-// group-index resolution per field) and runDecodePlan iterating the plan to
-// call setFieldValue. setFieldValue dispatches: pointer → RegexUnmarshaler
-// (addr / value-receiver) → time.Time / time.Duration → kind switch
-// (string/int/uint/float/bool) → unsupported-type error.
+// FindStringSubmatchIndex, then a plan-cache lookup (getDecodePlan) and
+// runDecodePlan iterating the plan to call setFieldValue. buildDecodePlan
+// (parseFieldTag + group-index resolution per field) runs only on the first
+// use of a (pattern, struct type) pair, so steady-state iterations measure
+// cache hits, never plan builds. setFieldValue dispatches: pointer →
+// RegexUnmarshaler (addr / value-receiver) → time.Time / time.Duration →
+// kind switch (string/int/uint/float/bool) → unsupported-type error.
 
 func BenchmarkUnmarshal(b *testing.B) {
 	// representative — the common shapes.
@@ -313,10 +315,12 @@ func BenchmarkUnmarshal(b *testing.B) {
 // ── UnmarshalAll ──────────────────────────────────────────────────────────────
 //
 // Cost model: FindAllStringSubmatchIndex (whole-target scan + index matrix),
-// buildDecodePlan once for the call, then per match a runDecodePlan pass into a
-// pre-sized slice (reflect.MakeSlice). The plan's group indexes and parsed
-// options are reused across matches, so per-match cost is just the index walk
-// and per-field conversion. Scales with match count and per-match field work.
+// a plan-cache lookup (getDecodePlan; buildDecodePlan runs only on the first
+// use of a (pattern, struct type) pair, so steady-state iterations hit the
+// cache), then per match a runDecodePlan pass into a pre-sized slice
+// (reflect.MakeSlice). The plan's group indexes and parsed options are reused
+// across matches, so per-match cost is just the index walk and per-field
+// conversion. Scales with match count and per-match field work.
 
 func BenchmarkUnmarshalAll(b *testing.B) {
 	// edge / no-match contract shape (slice length set to 0).
