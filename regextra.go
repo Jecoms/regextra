@@ -295,7 +295,18 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 // the occurrence that participated in that match, not blindly re.SubexpIndex's
 // first occurrence.
 func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
-	idxs := subexpIndexes(re, groupName)
+	// Collect the name's occurrence indices into a stack-backed buffer instead
+	// of subexpIndexes' heap slice — the indices never outlive this call, so
+	// the array does not escape. Four covers any realistic duplicate-name
+	// count; a pattern reusing one name more than four times spills to a heap
+	// append, trading back the one alloc this avoids.
+	var buf [4]int
+	idxs := buf[:0]
+	for i, n := range re.SubexpNames() {
+		if i != 0 && n == groupName {
+			idxs = append(idxs, i)
+		}
+	}
 	if len(idxs) == 0 {
 		return nil
 	}
