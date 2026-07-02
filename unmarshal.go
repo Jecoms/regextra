@@ -382,12 +382,18 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 	if tag == "" {
 		return "", nil, false, false
 	}
-	parts := strings.Split(tag, ",")
-	name = strings.TrimSpace(parts[0])
-	if len(parts) == 1 {
+	// Walk the comma-separated pieces with strings.Cut instead of allocating
+	// strings.Split's []string — the pieces are only visited once, in order,
+	// so the slice was pure overhead (-1 alloc per tagged field on every plan
+	// build; the durable win is the Compile/DeriveEncoder/cache-miss paths).
+	first, rest, hasOpts := strings.Cut(tag, ",")
+	name = strings.TrimSpace(first)
+	if !hasOpts {
 		return name, nil, false, false
 	}
-	for _, p := range parts[1:] {
+	for more := true; more; {
+		var p string
+		p, rest, more = strings.Cut(rest, ",")
 		p = strings.TrimSpace(p)
 		k, v, ok := strings.Cut(p, "=")
 		if !ok {
@@ -404,13 +410,16 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		}
 		// Allocate the options map lazily — only a key=value pair populates it.
 		// A field with just a lone flag (e.g. `name,required`) keeps opts nil,
-		// matching the no-options case (parts==1). parseFieldTag runs only
-		// inside the at-most-once-per-(pattern, type) plan build, so the win
-		// is not per call but per plan entry: nil opts avoids an empty map
-		// retained for the life of the process by every cached plan. Consumers
-		// already treat nil opts as "no options" (nil-map reads are zero-value).
+		// matching the no-options case (no comma in the tag). parseFieldTag
+		// runs only inside the at-most-once-per-(pattern, type) plan build, so
+		// the win is not per call but per plan entry: nil opts avoids an empty
+		// map retained for the life of the process by every cached plan.
+		// Consumers already treat nil opts as "no options" (nil-map reads are
+		// zero-value). The size hint (comma count = option-piece count, since
+		// n commas split into n+1 pieces and the first piece is the name)
+		// matches the old len(parts)-1.
 		if opts == nil {
-			opts = make(map[string]string, len(parts)-1)
+			opts = make(map[string]string, strings.Count(tag, ","))
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}

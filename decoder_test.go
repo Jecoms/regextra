@@ -729,6 +729,80 @@ func TestDecoder_Iter_continuesPastErrors(t *testing.T) {
 	}
 }
 
+// Yielded values must be independent copies: writing through a pointer field
+// of an earlier yield must not affect a later one. Guards the Iter
+// scratch-value reuse, where a missing per-match reset would hand successive
+// yields aliased pointees.
+func TestDecoder_Iter_pointerFieldsNotAliasedAcrossYields(t *testing.T) {
+	type E struct {
+		Age *int `regex:"age"`
+	}
+	dec := rx.MustCompile[E](`age=(?P<age>\d+)`)
+	var got []E
+	for v, err := range dec.Iter("age=1 age=2 age=3") {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got = append(got, v)
+	}
+	if len(got) != 3 {
+		t.Fatalf("Iter yielded %d values, want 3", len(got))
+	}
+	*got[0].Age = 99
+	for i, want := range []int{99, 2, 3} {
+		if *got[i].Age != want {
+			t.Errorf("got[%d].Age = %d, want %d (yields must not share pointees)", i, *got[i].Age, want)
+		}
+	}
+}
+
+// A group that participates in one match but not the next must not leak the
+// earlier match's value into the later yield — each yield starts from a zero
+// T, not from the previous match's leftovers.
+func TestDecoder_Iter_optionalGroupDoesNotLeakAcrossYields(t *testing.T) {
+	type E struct {
+		Name string `regex:"name"`
+		Age  string `regex:"age"`
+	}
+	dec := rx.MustCompile[E](`(?P<name>[a-z]+)(?::(?P<age>\d+))?`)
+	var got []E
+	for v, err := range dec.Iter("alice:30 bob") {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got = append(got, v)
+	}
+	want := []E{{"alice", "30"}, {"bob", ""}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Iter collected %+v, want %+v (non-participating group must not inherit the prior match's value)", got, want)
+	}
+}
+
+// The Seq2 returned by Iter must be re-rangeable: a second full range yields
+// the same sequence as the first.
+func TestDecoder_Iter_seqIsReusable(t *testing.T) {
+	type E struct {
+		Name string `regex:"name"`
+	}
+	dec := rx.MustCompile[E](`(?P<name>\w+)`)
+	seq := dec.Iter("alpha beta")
+	collect := func() []E {
+		var out []E
+		for v, err := range seq {
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			out = append(out, v)
+		}
+		return out
+	}
+	first, second := collect(), collect()
+	want := []E{{"alpha"}, {"beta"}}
+	if !reflect.DeepEqual(first, want) || !reflect.DeepEqual(second, want) {
+		t.Errorf("re-ranging the same Seq2 gave %+v then %+v, want %+v both times", first, second, want)
+	}
+}
+
 func TestDecoder_duplicateNames(t *testing.T) {
 	type rec struct {
 		Word string `regex:"word"`
@@ -894,6 +968,30 @@ func TestCompile_dashFieldNeedsNoGroup(t *testing.T) {
 	}
 	if _, err := rx.Compile[Person](`(?P<name>\w+)`); err != nil {
 		t.Fatalf("Compile() error = %v, want nil (regex:\"-\" field should be excluded)", err)
+	}
+}
+
+// A struct whose every field is excluded from decoding produces an empty (but
+// non-nil, since buildDecodePlan pre-sizes the slice) decode plan. Compile must
+// still succeed and decoding a matching input must return a zero-value struct
+// — pins the empty-plan invariant introduced by the plan pre-sizing.
+func TestDecoder_allFieldsSkippedDecodesToZeroValue(t *testing.T) {
+	type Opaque struct {
+		Kind   string `regex:"-"`
+		Count  int    `regex:"-"`
+		hidden string //nolint:unused // unexported: skipped by the plan builder
+	}
+	d, err := rx.Compile[Opaque](`(?P<kind>\w+):(?P<count>\d+)`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want nil (all-skipped struct must compile)", err)
+	}
+
+	got, err := d.One("widget:42")
+	if err != nil {
+		t.Fatalf("One() error = %v", err)
+	}
+	if got != (Opaque{}) {
+		t.Errorf("One() = %+v, want zero value (no field enters the decode plan)", got)
 	}
 }
 
