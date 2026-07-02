@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -140,6 +141,49 @@ func (e *RequiredGroupError) Error() string {
 	return fmt.Sprintf("field %s: required group %q produced no value", e.Field, e.Group)
 }
 
+// planCacheKey identifies one cached decode plan: the regexp's source pattern
+// plus the destination struct type. Keying on re.String() rather than the
+// *regexp.Regexp itself is sound because two Regexps with equal String() have
+// identical SubexpNames, and the non-strict buildDecodePlan reads re only
+// through SubexpNames/SubexpIndex (via subexpIndexes and matchGroupName) —
+// pure functions of the pattern string.
+type planCacheKey struct {
+	pattern string
+	typ     reflect.Type
+}
+
+// planCache caches the lenient (strict=false) decode plan per (pattern, struct
+// type) pair for the free functions [Unmarshal] and [UnmarshalAll], so only
+// the first call for a given pair pays the reflect plan build. Values are
+// []fieldDecoder, immutable after construction (runDecodePlan only reads
+// them), so sharing one plan across goroutines is safe.
+//
+// The cache is process-lifetime with no eviction, mirroring encoding/json's
+// type-keyed field cache: entries are small (field indexes + parsed tag
+// options; the *regexp.Regexp is not retained), and real workloads use a
+// bounded set of (pattern, type) pairs. A workload that decodes unboundedly
+// many distinct patterns grows the cache without bound — but such a workload
+// already pays per-call regexp compilation, which dwarfs plan retention.
+var planCache sync.Map // planCacheKey -> []fieldDecoder
+
+// getDecodePlan returns the decode plan for (rt, re) on the lenient free-
+// function path, building and caching it on first use. Racing first callers
+// may both build; LoadOrStore makes one plan canonical and both return it.
+// buildDecodePlan never returns a non-nil error when strict=false; the check
+// is kept for forward-safety (see Unmarshal), and an error is never cached.
+func getDecodePlan(rt reflect.Type, re *regexp.Regexp) ([]fieldDecoder, error) {
+	key := planCacheKey{pattern: re.String(), typ: rt}
+	if cached, ok := planCache.Load(key); ok {
+		return cached.([]fieldDecoder), nil
+	}
+	fields, err := buildDecodePlan(rt, re, false)
+	if err != nil {
+		return nil, err
+	}
+	plan, _ := planCache.LoadOrStore(key, fields)
+	return plan.([]fieldDecoder), nil
+}
+
 // Unmarshal extracts named capture groups from the target string and assigns them
 // to the corresponding fields in the provided struct pointer.
 //
@@ -203,12 +247,13 @@ func Unmarshal(re *regexp.Regexp, target string, v any) error {
 		return nil // No match, but not an error
 	}
 
-	// Build an uncached decode plan for this struct and run it — the same plan
-	// build/run the cached Decoder uses, in lenient mode (strict=false) so
-	// Unmarshal stays best-effort rather than erroring on undeclared groups or
-	// misplaced tag options. buildDecodePlan never returns an error when
-	// strict=false; the check is kept for forward-safety.
-	fields, err := buildDecodePlan(elem.Type(), re, false)
+	// Fetch the decode plan for this (pattern, struct type) pair — cached in
+	// planCache after first use — and run it. It is the same plan build/run
+	// the Decoder uses, in lenient mode (strict=false) so Unmarshal stays
+	// best-effort rather than erroring on undeclared groups or misplaced tag
+	// options. buildDecodePlan never returns an error when strict=false; the
+	// check is kept for forward-safety.
+	fields, err := getDecodePlan(elem.Type(), re)
 	if err != nil {
 		return fmt.Errorf("regextra.Unmarshal: %w", err)
 	}
@@ -270,13 +315,14 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 		return nil
 	}
 
-	// Build the decode plan once for the whole call, then run it for every match
-	// into a pre-sized slice. This replaces the old per-match map build +
-	// per-field tag re-parse: the plan (group indexes + parsed options) is
-	// computed once and reused, and each match decodes in place — no reflect.New
-	// / reflect.Append copy and no map churn per match. strict=false keeps the
-	// lenient Unmarshal posture (see Unmarshal); the error is never non-nil here.
-	fields, err := buildDecodePlan(sliceElemType, re, false)
+	// Fetch the decode plan — cached in planCache per (pattern, struct type)
+	// pair, so it is built at most once per process — then run it for every
+	// match into a pre-sized slice. The plan (group indexes + parsed options)
+	// replaced the old per-match map build + per-field tag re-parse, and each
+	// match decodes in place — no reflect.New / reflect.Append copy and no map
+	// churn per match. strict=false keeps the lenient Unmarshal posture (see
+	// Unmarshal); the error is never non-nil here.
+	fields, err := getDecodePlan(sliceElemType, re)
 	if err != nil {
 		return fmt.Errorf("regextra.UnmarshalAll: %w", err)
 	}
@@ -358,8 +404,10 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		}
 		// Allocate the options map lazily — only a key=value pair populates it.
 		// A field with just a lone flag (e.g. `name,required`) keeps opts nil,
-		// matching the no-options case (parts==1) and avoiding a per-call,
-		// per-field empty-map allocation on the Unmarshal hot path. Consumers
+		// matching the no-options case (parts==1). parseFieldTag runs only
+		// inside the at-most-once-per-(pattern, type) plan build, so the win
+		// is not per call but per plan entry: nil opts avoids an empty map
+		// retained for the life of the process by every cached plan. Consumers
 		// already treat nil opts as "no options" (nil-map reads are zero-value).
 		if opts == nil {
 			opts = make(map[string]string, len(parts)-1)

@@ -360,7 +360,7 @@ err := regextra.UnmarshalAll(re, "Alice is 30 and Bob is 25", &people)
 
 ### `Compile[T any](pattern string) (*Decoder[T], error)` / `MustCompile[T any](pattern string) *Decoder[T]`
 
-Typed, regex-bound unmarshaler that caches the reflect plan for `T`'s fields. **Compile once, decode many times** — eliminates the per-call reflect work that `Unmarshal` does on every invocation.
+Typed, regex-bound unmarshaler that carries the precomputed reflect plan for `T`'s fields. **Compile once, decode many times.** (`Unmarshal` / `UnmarshalAll` cache their decode plan too — built on first use of a (pattern, struct type) pair, kept for the life of the process — so the `Decoder`'s remaining edge is skipping the per-call cache lookup, plus the strict upfront validation below.)
 
 ```go
 type Person struct {
@@ -379,7 +379,7 @@ people, _ := personDecoder.All("Alice is 30 and Bob is 25")
 // people = []Person{{"Alice", 30}, {"Bob", 25}}
 ```
 
-**vs `Unmarshal`:** the same simple-struct shape benchmarks at **~255 ns/op (2 allocs)** via `Decoder` versus **~540 ns/op (11 allocs)** via `Unmarshal` on Apple M4 — roughly half the time and far fewer allocations (measurements are hardware-dependent, not a guarantee). Use `Decoder` when you'll decode the same shape many times (log parsers, config readers, request handlers); use `Unmarshal` for one-shot extraction.
+**vs `Unmarshal`:** because the free functions cache their decode plan after the first call, the steady-state gap is small — the same simple-struct shape benchmarks at **~265 ns/op (2 allocs)** via `Decoder` versus **~290 ns/op (2 allocs)** via `Unmarshal` on Apple M4 (measurements are hardware-dependent, not a guarantee). `Decoder`'s remaining edge is skipping the per-call cache lookup — and, more importantly, `Compile` validates pattern/tag agreement strictly up front, where the lenient free functions skip misbound fields silently. Use `Decoder` when you'll decode the same shape many times (log parsers, config readers, request handlers); use `Unmarshal` for one-shot extraction.
 
 **Compile-time validation is strict.** `Compile` returns an error (or `MustCompile` panics) if:
 - The pattern is not a valid regex
