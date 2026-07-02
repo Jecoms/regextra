@@ -22,7 +22,7 @@ re := regexp.MustCompile(`...`)
 
 ## Environment
 
-- regextra version: <!-- output of `go list -m github.com/jecoms/regextra` -->
+- regextra version: <!-- output of `go list -m github.com/jecoms/regextra/v2` -->
 - Go version: <!-- output of `go version` -->
 - OS / arch: <!-- e.g. macOS 14.5 / arm64 -->
 
