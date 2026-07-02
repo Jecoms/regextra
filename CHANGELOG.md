@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-07-02
+
+### Changed
+
+- Remove retired Go Report Card badge from README. ([#177](https://github.com/Jecoms/regextra/pull/177))
+
 ## [2.0.0] - 2026-07-02
 
 The first major release since v1.0.0. It collects every change merged since v1.0.0 — a handful of them alter the observable behavior of existing calls, which [README §Stability](./README.md#stability) defines as breaking, so this is a major bump rather than a v1 minor/patch. There are no v1 adopters, so there is no separate migration guide; every breaking entry below is marked **(Breaking)** instead.
