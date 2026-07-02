@@ -458,6 +458,16 @@ func TestEncode_textMarshalerErrorUnwraps(t *testing.T) {
 	}
 }
 
+// A directly-constructed EncodeError with no underlying Err must not render a
+// dangling "field : <nil>" message. The encode path always sets a cause, but the
+// type is exported, so guard the empty-payload case — matching the DecodeError,
+// RequiredGroupError, and MissingNamedGroupsError siblings.
+func TestEncodeError_nilErrRendersCleanMessage(t *testing.T) {
+	if got, want := (&rx.EncodeError{}).Error(), "no encode error"; got != want {
+		t.Errorf("(&EncodeError{}).Error() = %q, want %q", got, want)
+	}
+}
+
 // ── Decoder.Encoder: derivation error paths ────────────────────────────────────
 
 // Non-invertible constructs outside a named capture have no single string to
