@@ -4,7 +4,7 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 	"log/slog"
 	"math"
 	"math/big"

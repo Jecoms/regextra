@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 )
 
 // ── Compile: happy paths ──────────────────────────────────────────────────────

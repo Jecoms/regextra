@@ -3,7 +3,7 @@ package regextra_test
 import (
 	"errors"
 	"fmt"
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 	"reflect"
 	"regexp"
 	"strings"

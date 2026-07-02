@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 )
 
 // Typed sinks for the decode results (assigning a struct/slice to `any` would

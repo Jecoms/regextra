@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	rx "github.com/jecoms/regextra"
+	rx "github.com/jecoms/regextra/v2"
 )
 
 // TestBenchmarkFixturesSane asserts that the benchmark fixtures actually
