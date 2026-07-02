@@ -161,7 +161,9 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 // setFieldValue. This preserves Unmarshal's historical best-effort behavior, so
 // buildDecodePlan never returns a non-nil error when strict=false.
 func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDecoder, error) {
-	var fields []fieldDecoder
+	// NumField is a strict upper bound on plan entries (the loop only skips),
+	// so one right-sized allocation replaces append's grow-and-copy chain.
+	fields := make([]fieldDecoder, 0, rt.NumField())
 	for i := range rt.NumField() {
 		sf := rt.Field(i)
 		if !sf.IsExported() {
