@@ -233,8 +233,19 @@ import (
 //	name, ok := regextra.FindNamed(re, "Alice 30", "name")
 //	// name = "Alice", ok = true
 func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
-	idxs := subexpIndexes(re, groupName)
-	if len(idxs) == 0 {
+	// Scan SubexpNames directly instead of materializing subexpIndexes' []int
+	// — the occurrence indices are only ever walked in declaration order, so
+	// two passes over the (already-cached) names slice make FindNamed
+	// allocation-free apart from the regexp engine's own work.
+	names := re.SubexpNames()
+	declared := false
+	for i := 1; i < len(names); i++ {
+		if names[i] == groupName {
+			declared = true
+			break
+		}
+	}
+	if !declared {
 		return "", false
 	}
 
@@ -252,9 +263,12 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 	// value stays "" — matching FindStringSubmatch's "" for a declared but
 	// non-participating group.
 	value := ""
-	for _, idx := range idxs {
-		if start := loc[2*idx]; start >= 0 {
-			value = target[start:loc[2*idx+1]]
+	for i := 1; i < len(names); i++ {
+		if names[i] != groupName {
+			continue
+		}
+		if start := loc[2*i]; start >= 0 {
+			value = target[start:loc[2*i+1]]
 		}
 	}
 	return value, true
@@ -281,7 +295,18 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 // the occurrence that participated in that match, not blindly re.SubexpIndex's
 // first occurrence.
 func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
-	idxs := subexpIndexes(re, groupName)
+	// Collect the name's occurrence indices into a stack-backed buffer instead
+	// of subexpIndexes' heap slice — the indices never outlive this call, so
+	// the array does not escape. Four covers any realistic duplicate-name
+	// count; a pattern reusing one name more than four times spills to a heap
+	// append, trading back the one alloc this avoids.
+	var buf [4]int
+	idxs := buf[:0]
+	for i, n := range re.SubexpNames() {
+		if i != 0 && n == groupName {
+			idxs = append(idxs, i)
+		}
+	}
 	if len(idxs) == 0 {
 		return nil
 	}

@@ -161,7 +161,9 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 // setFieldValue. This preserves Unmarshal's historical best-effort behavior, so
 // buildDecodePlan never returns a non-nil error when strict=false.
 func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDecoder, error) {
-	var fields []fieldDecoder
+	// NumField is a strict upper bound on plan entries (the loop only skips),
+	// so one right-sized allocation replaces append's grow-and-copy chain.
+	fields := make([]fieldDecoder, 0, rt.NumField())
 	for i := range rt.NumField() {
 		sf := rt.Field(i)
 		if !sf.IsExported() {
@@ -362,9 +364,21 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		allMatches := d.re.FindAllStringSubmatchIndex(target, -1)
+		if len(allMatches) == 0 {
+			// Early return before declaring the scratch value: &v escapes to
+			// the heap, and this guard keeps that alloc off the no-match path.
+			return
+		}
+		// One scratch T reused across matches instead of a fresh heap
+		// allocation per match. The zero-reset below is what makes the reuse
+		// sound: yield receives v by value, so a copy is handed out, and the
+		// reset guarantees the scratch holds no references (pointer fields,
+		// etc.) into a previously yielded copy — decode allocates fresh
+		// pointees for each match rather than writing through stale ones.
+		var v T
+		rv := reflect.ValueOf(&v).Elem()
 		for _, matches := range allMatches {
-			var v T
-			rv := reflect.ValueOf(&v).Elem()
+			v = d.zero
 			err := d.decode(rv, target, matches)
 			if err != nil {
 				err = fmt.Errorf("regextra.Decoder.Iter: %w", err)

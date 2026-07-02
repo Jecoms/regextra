@@ -1077,6 +1077,21 @@ func TestFindAllNamed_duplicateNames(t *testing.T) {
 	}
 }
 
+// More than four occurrences of one group name exercises the spill path of
+// FindAllNamed's stack-backed occurrence buffer — behavior must be identical
+// to the small-count case.
+func TestFindAllNamed_manyDuplicateNamesSpill(t *testing.T) {
+	re := regexp.MustCompile(`(?:v(?P<word>1)|w(?P<word>2)|x(?P<word>3)|y(?P<word>4)|z(?P<word>5))`)
+	got := rx.FindAllNamed(re, "v1 w2 x3 y4 z5", "word")
+	want := []string{"1", "2", "3", "4", "5"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FindAllNamed with 5 duplicate occurrences = %q, want %q", got, want)
+	}
+	if got := rx.FindAllNamed(re, "v1", "missing"); got != nil {
+		t.Errorf("FindAllNamed undeclared group = %q, want nil", got)
+	}
+}
+
 // NamedGroups still surfaces a declared-but-non-participating group as "" —
 // only the Unmarshal path omits it (the includeNonParticipating split).
 func TestNamedGroups_nonParticipatingStillPresent(t *testing.T) {

@@ -480,12 +480,13 @@ func encodableType(t reflect.Type) bool {
 // actual value. `layout=` is honored so a time.Time re-parses under [Decoder]'s
 // exclusive-layout rule.
 func (e *Encoder[T]) Encode(v T) (string, error) {
-	// An addressable copy of v so fields with pointer-receiver marshalers
-	// dispatch via Addr() — the same reason setFieldValue relies on
-	// addressability on the decode side. reflect.ValueOf(v) alone is not
-	// addressable.
-	rv := reflect.New(e.rtype).Elem()
-	rv.Set(reflect.ValueOf(v))
+	// Reflect on v through its address so the value is addressable and fields
+	// with pointer-receiver marshalers dispatch via Addr() — the same reason
+	// setFieldValue relies on addressability on the decode side.
+	// reflect.ValueOf(v) alone is not addressable; taking &v of the by-value
+	// parameter gives the same addressable copy that reflect.New + Set built,
+	// without allocating a second T or boxing v in an interface.
+	rv := reflect.ValueOf(&v).Elem()
 
 	var b strings.Builder
 	for _, seg := range e.segments {

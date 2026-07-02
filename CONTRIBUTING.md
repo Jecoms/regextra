@@ -109,9 +109,18 @@ cp CLAUDE.md.example CLAUDE.md
 ### Documentation
 - **All exported functions must have godoc comments**
 - Start with the function name: `// FunctionName does...`
+- **Godoc is the public README for a symbol** — describe its public behavior
+  and how to use it (the contract a caller relies on), not how it's implemented
+  internally
 - Include usage examples in the godoc
 - Update README.md when adding new public APIs
 - Add example tests that demonstrate usage
+- **A comment describes the code as it stands now, never a past version of it.**
+  When you refactor, don't leave the old implementation behind as a comment
+  ("previously…", "changed from…", "used to…"). That history documents the
+  *change*, not the current behavior — it belongs in the PR (inline review
+  comments or the description) and the commit log, where a reviewer needs it,
+  not in the source where it goes stale.
 
 ### Changelog
 - **Add a CHANGELOG entry whenever a PR adds a feature or changes existing
@@ -133,6 +142,10 @@ cp CLAUDE.md.example CLAUDE.md
 - Follow the conventions in `Effective Go` and `Go Code Review Comments`
 - Keep functions focused and single-purpose
 - Prefer simplicity over cleverness
+- **Comment sparingly; prefer self-documenting code.** Clear names and small,
+  single-purpose functions should carry the intent. Add a comment only when it
+  adds clarity the code can't express on its own — usually the *why* (an
+  invariant, a trade-off, a workaround and its reason), rarely the *what*
 
 ## API Design Principles
 
