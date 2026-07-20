@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           # govulncheck@latest pulls golang.org/x/vuln >= v1.3.0 which requires
           # Go ≥ 1.25 to build. The library still targets Go 1.24, but the
