@@ -1698,7 +1698,7 @@ func TestUnmarshal_dashWithOptionsIsNotExcluded(t *testing.T) {
 }
 
 // Issue #113: pin the two tag-grammar forward-compatibility rules that the
-// package doc (regextra.go "Tag grammar") declares part of the
+// package doc (doc.go "Tag grammar") declares part of the
 // stability contract since v1,
 // exercised through the public Unmarshal/Decoder surface rather than the
 // unexported parser:
@@ -2298,7 +2298,7 @@ func TestUnmarshal_plainAnyFieldUnsupported(t *testing.T) {
 
 // An untagged exported field whose name matches no declared group, with no
 // default= to fall back on, is silently skipped by the lenient decode plan
-// (decoder.go) and left at its zero value rather than erroring.
+// (plan.go) and left at its zero value rather than erroring.
 func TestUnmarshal_untaggedFieldNoMatchingGroupSkipped(t *testing.T) {
 	type rec struct {
 		Name    string `regex:"name"`
