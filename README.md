@@ -68,7 +68,8 @@ func main() {
 | [`FindNamed`](https://pkg.go.dev/github.com/jecoms/regextra/v2#FindNamed) | Pull one named group from the first match |
 | [`FindAllNamed`](https://pkg.go.dev/github.com/jecoms/regextra/v2#FindAllNamed) | Pull one named group across all matches |
 | [`NamedGroups`](https://pkg.go.dev/github.com/jecoms/regextra/v2#NamedGroups) | All named groups of one match, as a map |
-| [`AllNamedGroups`](https://pkg.go.dev/github.com/jecoms/regextra/v2#AllNamedGroups) | All named groups of one match, keeping every value of a reused group name |
+| [`NamedGroupOccurrences`](https://pkg.go.dev/github.com/jecoms/regextra/v2#NamedGroupOccurrences) | Every value of every named group in the first match — one slice element per occurrence of a reused name |
+| [`AllNamedGroups`](https://pkg.go.dev/github.com/jecoms/regextra/v2#AllNamedGroups) | Deprecated alias of `NamedGroupOccurrences` |
 | [`NamedGroupsPerMatch`](https://pkg.go.dev/github.com/jecoms/regextra/v2#NamedGroupsPerMatch) | One named-group map per match, across all matches |
 | [`NamedGroupsPerMatchSeq`](https://pkg.go.dev/github.com/jecoms/regextra/v2#NamedGroupsPerMatchSeq) | Lazy (Go 1.23+ range-over-func) form of `NamedGroupsPerMatch` |
 | [`Replace`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Replace) | Substitute named-group spans by name, in every match |

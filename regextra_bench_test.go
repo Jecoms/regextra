@@ -213,28 +213,28 @@ func BenchmarkNamedGroups(b *testing.B) {
 	benchCase(b, "manyGroups", func() { sinkMap = rx.NamedGroups(bnNGManyRe, bnNGManyIn) }) // map-insertion scaling (20 groups)
 }
 
-// ── AllNamedGroups ────────────────────────────────────────────────────────────
+// ── NamedGroupOccurrences ─────────────────────────────────────────────────────
 //
 // Cost model: like NamedGroups, but values are []string, so each distinct group
 // costs an extra one-element slice allocation, and a repeated group name forces
 // slice append/regrowth under one key — the path this function exists for.
 
 var (
-	bnANGDistinctRe = regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-	bnANGDistinctIn = "Alice 30"
-	bnANGDupRe      = regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
-	bnANGDupIn      = "alpha beta gamma"
-	bnANGNoMatch    = "nomatch"
-	bnANGManyDupRe  = regexp.MustCompile(strings.Repeat(`(?P<w>\w+)\s*`, 20))
-	bnANGManyDupIn  = strings.Repeat("x ", 20)
+	bnNGODistinctRe = regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
+	bnNGODistinctIn = "Alice 30"
+	bnNGODupRe      = regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
+	bnNGODupIn      = "alpha beta gamma"
+	bnNGONoMatch    = "nomatch"
+	bnNGOManyDupRe  = regexp.MustCompile(strings.Repeat(`(?P<w>\w+)\s*`, 20))
+	bnNGOManyDupIn  = strings.Repeat("x ", 20)
 )
 
-func BenchmarkAllNamedGroups(b *testing.B) {
+func BenchmarkNamedGroupOccurrences(b *testing.B) {
 	// distinctGroups pairs with NamedGroups/twoGroups-style input to expose the slice-per-key tax.
-	benchCase(b, "distinctGroups", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGDistinctIn) })
-	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.AllNamedGroups(bnANGDupRe, bnANGDupIn) }) // 3 occurrences under one key
-	benchCase(b, "noMatch", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGNoMatch) })
-	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn) }) // 20 appends + regrowth under one key
+	benchCase(b, "distinctGroups", func() { sinkMapSS = rx.NamedGroupOccurrences(bnNGODistinctRe, bnNGODistinctIn) })
+	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.NamedGroupOccurrences(bnNGODupRe, bnNGODupIn) }) // 3 occurrences under one key
+	benchCase(b, "noMatch", func() { sinkMapSS = rx.NamedGroupOccurrences(bnNGODistinctRe, bnNGONoMatch) })
+	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.NamedGroupOccurrences(bnNGOManyDupRe, bnNGOManyDupIn) }) // 20 appends + regrowth under one key
 }
 
 // ── NamedGroupsPerMatch ───────────────────────────────────────────────────────

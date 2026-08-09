@@ -79,7 +79,7 @@ func checkFindAllNamedFixtures(t *testing.T) {
 	}
 }
 
-// NamedGroups / AllNamedGroups: populated, no-match, and duplicate-name shapes.
+// NamedGroups / NamedGroupOccurrences: populated, no-match, and duplicate-name shapes.
 func checkNamedGroupsFixtures(t *testing.T) {
 	if m := rx.NamedGroups(bnNGRe, bnNGIn); len(m) != 2 {
 		t.Errorf("NamedGroups twoGroups size = %d, want 2", len(m))
@@ -90,11 +90,11 @@ func checkNamedGroupsFixtures(t *testing.T) {
 	if m := rx.NamedGroups(bnNGManyRe, bnNGManyIn); len(m) != 20 {
 		t.Errorf("NamedGroups manyGroups size = %d, want 20", len(m))
 	}
-	if m := rx.AllNamedGroups(bnANGDupRe, bnANGDupIn); len(m["word"]) != 3 {
-		t.Errorf("AllNamedGroups duplicateGroupName word count = %d, want 3", len(m["word"]))
+	if m := rx.NamedGroupOccurrences(bnNGODupRe, bnNGODupIn); len(m["word"]) != 3 {
+		t.Errorf("NamedGroupOccurrences duplicateGroupName word count = %d, want 3", len(m["word"]))
 	}
-	if m := rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn); len(m["w"]) != 20 {
-		t.Errorf("AllNamedGroups manyDuplicates w count = %d, want 20", len(m["w"]))
+	if m := rx.NamedGroupOccurrences(bnNGOManyDupRe, bnNGOManyDupIn); len(m["w"]) != 20 {
+		t.Errorf("NamedGroupOccurrences manyDuplicates w count = %d, want 20", len(m["w"]))
 	}
 }
 

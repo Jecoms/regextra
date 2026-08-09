@@ -217,7 +217,7 @@ func ExampleNamedGroups() {
 	// Output: year=2025 month=10 day=04
 }
 
-func TestAllNamedGroups(t *testing.T) {
+func TestNamedGroupOccurrences(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
@@ -276,20 +276,31 @@ func TestAllNamedGroups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			got := rx.AllNamedGroups(re, tt.target)
+			got := rx.NamedGroupOccurrences(re, tt.target)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("AllNamedGroups() = %v, want %v", got, tt.want)
+				t.Errorf("NamedGroupOccurrences() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func ExampleAllNamedGroups() {
+func ExampleNamedGroupOccurrences() {
 	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+) (?P<word>\w+)`)
-	allGroups := rx.AllNamedGroups(re, "one two three")
+	occurrences := rx.NamedGroupOccurrences(re, "one two three")
 
-	fmt.Printf("word: %v\n", allGroups["word"])
+	fmt.Printf("word: %v\n", occurrences["word"])
 	// Output: word: [one two three]
+}
+
+func TestAllNamedGroups_deprecatedAlias(t *testing.T) {
+	re := regexp.MustCompile(`(?:x(?P<word>a)|y(?P<word>b))?(?P<tail>\w*)`)
+	for _, target := range []string{"xa", "yb", "plain", ""} {
+		got := rx.AllNamedGroups(re, target) //nolint:staticcheck // deliberate coverage of the deprecated alias
+		want := rx.NamedGroupOccurrences(re, target)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("AllNamedGroups(re, %q) = %v, want NamedGroupOccurrences result %v", target, got, want)
+		}
+	}
 }
 
 func TestNamedGroupsPerMatch(t *testing.T) {
@@ -1042,8 +1053,8 @@ func TestNamedGroups_duplicateNames(t *testing.T) {
 		}
 	})
 
-	t.Run("AllNamedGroups still preserves every occurrence", func(t *testing.T) {
-		got := rx.AllNamedGroups(re, "xa")
+	t.Run("NamedGroupOccurrences still preserves every occurrence", func(t *testing.T) {
+		got := rx.NamedGroupOccurrences(re, "xa")
 		want := []string{"a", ""}
 		if len(got["word"]) != 2 || got["word"][0] != want[0] || got["word"][1] != want[1] {
 			t.Errorf("got word=%q, want %q", got["word"], want)

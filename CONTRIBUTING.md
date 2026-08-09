@@ -76,7 +76,8 @@ cp CLAUDE.md.example CLAUDE.md
   `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
   `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*`/
   `BenchmarkDeriveEncoder*` → `encoder_*`;
-  `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
+  `TestNamedGroups*`/`TestNamedGroupOccurrences*`/`TestAllNamedGroups*`/
+  `BenchmarkNamedGroupOccurrences*`/`TestFindNamed*`/`TestReplace*`/
   `TestValidate*` → `regextra_*`).
 - **Do not add topical test files** (one per feature, bug fix, or issue). That
   habit is what fragmented the suite; a new test belongs in the existing
@@ -178,7 +179,7 @@ test/benchmark file per source file" above.
 
 ```
 regextra/
-├── regextra.go            # NamedGroups/AllNamedGroups, FindNamed/FindAllNamed, Replace, Validate
+├── regextra.go            # NamedGroups/NamedGroupOccurrences, FindNamed/FindAllNamed, Replace, Validate
 ├── regextra_test.go       # tests for regextra.go
 ├── regextra_bench_test.go # benchmarks for regextra.go
 ├── unmarshal.go           # Unmarshal / UnmarshalAll (reflect-based decode)
