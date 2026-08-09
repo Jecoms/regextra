@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **README restructured as a front page; the package documentation on pkg.go.dev is now the canonical per-symbol reference.** The README's per-function reference section was removed in favor of a one-row-per-symbol API table linking pkg.go.dev anchors; README-only contract text (conversion precedence, `time.Time` layout fallbacks, `Iter` streaming guidance) was ported into godoc before deletion. ([#194](https://github.com/Jecoms/regextra/issues/194), [#208](https://github.com/Jecoms/regextra/pull/208))
+
 ## [2.0.1] - 2026-07-02
 
 ### Changed

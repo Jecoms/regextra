@@ -205,8 +205,11 @@ does not count as breaking.
 
 # More
 
-The package README has full per-function reference with runnable examples for
-each function.
+This package documentation is the canonical reference for per-symbol
+contracts — each exported symbol's doc comment states the behavior a caller
+may rely on. The repository README is a front page (installation, a quick
+usage tour, an API table linking here, and the stability policy), not a
+second copy of the reference.
 */
 package regextra
 
