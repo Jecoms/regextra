@@ -76,16 +76,25 @@ cp CLAUDE.md.example CLAUDE.md
   `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
   `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*`/
   `BenchmarkDeriveEncoder*` → `encoder_*`;
-  `TestNamedGroups*`/`TestNamedGroupOccurrences*`/`TestAllNamedGroups*`/
-  `BenchmarkNamedGroupOccurrences*`/`TestFindNamed*`/`TestReplace*`/
-  `TestValidate*` → `regextra_*`).
+  `TestFindNamed*`/`TestFindAllNamed*`/`TestNamedGroups*`/
+  `TestNamedGroupsPerMatch*`/`TestNamedGroupOccurrences*`/
+  `TestAllNamedGroups*` and their `Benchmark*` counterparts → `find_*`;
+  `TestReplace*`/`BenchmarkReplace*` → `replace_*`;
+  `TestValidate*`/`BenchmarkValidate*` → `validate_*`).
 - **Do not add topical test files** (one per feature, bug fix, or issue). That
   habit is what fragmented the suite; a new test belongs in the existing
   sibling file, not a new one.
-- Two package-scoped exceptions exist: `bench_internal_test.go` lives in
+- Three package-scoped exceptions exist: `bench_internal_test.go` lives in
   `package regextra` (not `regextra_test`) so it can benchmark unexported code,
-  and `bench_sanity_test.go` guards the shared benchmark fixtures and so maps to
-  no single source file.
+  `bench_sanity_test.go` guards the shared benchmark fixtures and so maps to
+  no single source file, and `bench_shared_test.go` holds the harness every
+  benchmark file uses (the suite header, typed sinks, `benchCase`, and the
+  `bn*` fixture generators).
+- `doc.go`, `errors.go`, and `plan.go` have **no sibling test files** by
+  design: `doc.go` is documentation only, and the error contract and decode-plan
+  machinery are asserted through the producing surfaces' public APIs (see "Test
+  the public contract, not internals" below), so their tests live in the
+  sibling files of those surfaces (`find_*`, `unmarshal_*`, `decoder_*`, …).
 
 #### Test the public contract, not internals
 - **Assert observable behavior through the exported API** (`Unmarshal`,
@@ -193,9 +202,18 @@ test/benchmark file per source file" above.
 
 ```
 regextra/
-├── regextra.go            # NamedGroups/NamedGroupOccurrences, FindNamed/FindAllNamed, Replace, Validate
-├── regextra_test.go       # tests for regextra.go
-├── regextra_bench_test.go # benchmarks for regextra.go
+├── doc.go                 # package documentation (the godoc landing comment) — no code
+├── find.go                # FindNamed/FindAllNamed, NamedGroups/NamedGroupOccurrences, NamedGroupsPerMatch(+Seq)
+├── find_test.go           # tests for find.go
+├── find_bench_test.go     # benchmarks for find.go
+├── replace.go             # Replace/ReplaceFirst/ReplaceFunc/ReplaceFuncFirst
+├── replace_test.go        # tests for replace.go
+├── replace_bench_test.go  # benchmarks for replace.go
+├── validate.go            # Validate
+├── validate_test.go       # tests for validate.go
+├── validate_bench_test.go # benchmarks for validate.go
+├── errors.go              # the exported error contract (sentinels + typed errors) on one screen
+├── plan.go                # shared decode-plan machinery (build/run, tag parse, converters, plan cache)
 ├── unmarshal.go           # Unmarshal / UnmarshalAll (reflect-based decode)
 ├── unmarshal_test.go      # tests for unmarshal.go
 ├── unmarshal_bench_test.go# benchmarks for unmarshal.go
@@ -205,6 +223,7 @@ regextra/
 ├── encoder.go             # Decoder.Encoder/MustEncoder + Encoder[T] (pattern-inverting encode)
 ├── encoder_test.go        # tests for encoder.go
 ├── encoder_bench_test.go  # benchmarks for encoder.go
+├── bench_shared_test.go   # shared benchmark harness (typed sinks, benchCase, bn* fixture generators)
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)
 ├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
 ├── README.md              # Front page: install, usage tour, API table, stability policy

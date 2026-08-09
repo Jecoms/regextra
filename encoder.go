@@ -2,7 +2,6 @@ package regextra
 
 import (
 	"encoding"
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -12,29 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 )
-
-// ErrNotInvertible categorizes a [Decoder.Encoder] failure where the decoder's
-// pattern contains a construct that has no single string to emit when encoding —
-// an alternation (`|`), a quantifier (`*`, `+`, `?`, `{n,m}`), a character class
-// (`[...]`), an any-character wildcard (`.`), or an unnamed group with non-literal
-// content — appearing outside a named capture group. Callers can branch on the
-// failure kind with errors.Is rather than parsing the message. Like [ErrNoMatch]
-// and [ErrInvalidPattern], it carries the bare `regextra:` prefix reserved for
-// package-level sentinels.
-//
-// Inside a named capture group such constructs are fine: the struct field's value
-// fills the group, so the sub-pattern describing what the group matches is
-// irrelevant to encoding.
-var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
-
-// ErrValueMismatch categorizes an [Encoder.EncodeStrict] failure where an
-// encoded field value does not re-match the sub-pattern of the capture group it
-// fills, so the output could decode to something other than the input. Callers
-// can branch on the failure kind with errors.Is rather than parsing the message;
-// the surrounding [EncodeError] (recover with errors.As) names the field and
-// group. Like [ErrNoMatch] and [ErrNotInvertible], it carries the bare
-// `regextra:` prefix reserved for package-level sentinels.
-var ErrValueMismatch = errors.New("regextra: encoded value does not match group sub-pattern")
 
 // Encoder is the typed inverse of [Decoder]: it renders a value of T back into a
 // string so that an Encode followed by an [Unmarshal] / [Decoder.One] on the same
@@ -193,54 +169,6 @@ var (
 	regexMarshalerType = reflect.TypeOf((*RegexMarshaler)(nil)).Elem()
 	textMarshalerType  = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
 )
-
-// EncodeError reports the failure to render a struct field into its capture-group
-// slot. It is the encode-side mirror of [DecodeError], returned (wrapped with the
-// calling entrypoint's prefix) by [Encoder.Encode] and [Encoder.EncodeStrict]
-// when a field's value cannot be converted to a string, and by EncodeStrict
-// additionally when an encoded value fails its group's re-match check (Err wraps
-// [ErrValueMismatch]). Recover it with [errors.As] to branch on the failure
-// without parsing message text:
-//
-//	var ee *regextra.EncodeError
-//	if errors.As(err, &ee) {
-//	    log.Printf("field %s (group %s) of type %s could not encode: %v", ee.Field, ee.Group, ee.Type, ee.Err)
-//	}
-//
-// Err holds the underlying cause (e.g. an error from a custom [RegexMarshaler]
-// or [encoding.TextMarshaler], a nil-pointer or nil-interface field, or
-// EncodeStrict's [ErrValueMismatch]) and is reachable via
-// [errors.Is]/[errors.As] through Unwrap.
-type EncodeError struct {
-	// Field is the source struct field name.
-	Field string
-	// Group is the capture-group name the field resolved from: the field's
-	// `regex:"..."` tag name when set, otherwise the declared group whose name
-	// matches the field name — which may differ from the field name in case when
-	// the two matched via Unicode simple case folding. Mirrors [DecodeError].Group.
-	Group string
-	// Type is the source field's type, rendered (e.g. "int", "time.Time").
-	Type string
-	// Err is the underlying encode error.
-	Err error
-}
-
-// Error implements the error interface. The calling entrypoint prepends its own
-// `regextra.<Entrypoint>:` prefix when wrapping. When Err is nil (only reachable
-// by constructing the value directly — the encode path always sets an underlying
-// cause) it reports "no encode error" rather than a message with a dangling
-// "<nil>" cause, mirroring [DecodeError], [RequiredGroupError], and
-// [MissingNamedGroupsError].
-func (e *EncodeError) Error() string {
-	if e.Err == nil {
-		return "no encode error"
-	}
-	return fmt.Sprintf("field %s: %v", e.Field, e.Err)
-}
-
-// Unwrap returns the underlying encode error so [errors.Is]/[errors.As] can
-// reach it.
-func (e *EncodeError) Unwrap() error { return e.Err }
 
 // Encoder derives the typed inverse of d by inverting d's compiled pattern: it
 // parses the pattern's AST and walks the invertible subset (literal runs, named
