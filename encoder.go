@@ -54,7 +54,13 @@ var ErrValueMismatch = errors.New("regextra: encoded value does not match group 
 //     resolves to a struct field with the same rules [Decoder] uses — the field's
 //     `regex:"name"` tag matched exactly, otherwise the field's own name matched
 //     exactly then case-insensitively via Unicode simple case folding; a `regex:"-"` field
-//     is excluded. The field's value fills the span; the group's sub-pattern is
+//     is excluded. Fields of an embedded struct tagged `regex:",inline"` are
+//     promoted candidates too, searched depth-by-depth so a shallower field
+//     shadows a deeper promoted one — the same precedence the decode plan
+//     applies (see [Unmarshal]). Reading a promoted field through a nil
+//     embedded pointer fails Encode with an [EncodeError]: the decode side
+//     allocates the intermediate, but an absent source cannot be read. The
+//     field's value fills the span; the group's sub-pattern is
 //     not part of the emitted text but is retained (compiled as an anchored
 //     matcher) for [Encoder.EncodeStrict]'s re-match check.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
@@ -109,9 +115,13 @@ type encodeSegment struct {
 	// field reports whether this segment substitutes a field (true) or emits
 	// literal text (false).
 	field bool
-	// fieldIndex is the index into T's struct fields (StructField.Index[0]),
-	// valid only when field is true.
-	fieldIndex int
+	// fieldIndex is the index path from T to the field, in the shape of
+	// [reflect.StructField.Index]: one element for a top-level field, one
+	// additional element per `inline`-promoted embedding level. Encode walks
+	// the path with encodeFieldPath, which errors on a nil embedded pointer
+	// (the decode side allocates instead — an absent value can be created, but
+	// one cannot be read). Valid only when field is true.
+	fieldIndex []int
 	// name is the capture-group name the segment resolved from, retained for
 	// EncodeError.Group. Valid only when field is true.
 	name string
@@ -437,7 +447,7 @@ func walkCapture(rt reflect.Type, re *syntax.Regexp, sb *encodeSegmentBuilder) e
 	if !ok {
 		return fmt.Errorf("%w: capture group %q maps to no exported field of %v", ErrInvalidStruct, re.Name, rt)
 	}
-	if err := validateEncodeField(rt.Field(idx)); err != nil {
+	if err := validateEncodeField(rt.FieldByIndex(idx)); err != nil {
 		return err
 	}
 	// Retain the group's sub-pattern as an anchored matcher for EncodeStrict.
@@ -508,61 +518,131 @@ func notInvertibleError(construct string) error {
 // of rt, using the same field-mapping rules the decode side applies: a field's
 // `regex:"name"` tag matched exactly, otherwise the field's own name matched
 // exactly first and then case-insensitively via Unicode simple case folding
-// (mirroring matchGroupName). Returns the field index, its parsed tag options,
-// and true on a match; ("", nil, false) when no field resolves.
-func resolveEncodeField(rt reflect.Type, name string) (int, map[string]string, bool) {
-	// Exact pass first so an exact name never loses to an earlier fold sibling.
-	for i := range rt.NumField() {
-		sf := rt.Field(i)
-		if !sf.IsExported() {
-			continue
-		}
-		candidate, opts, _, skip := fieldCandidateName(sf)
-		if skip {
-			continue
-		}
-		if candidate == name {
-			return i, opts, true
-		}
+// (mirroring matchGroupName). Returns the field's index path, its parsed tag
+// options, and true on a match; (nil, nil, false) when no field resolves.
+//
+// `inline`-promoted embedded structs are searched breadth-first, one embedding
+// depth at a time, so a shallower field always wins over a promoted deeper one —
+// the same shadowing rule buildDecodePlan applies on the decode side
+// (resolvePromotionShadowing). Within one depth the exact pass runs before the
+// fold pass, so an exact name never loses to a fold sibling. Below the top
+// level the exact pass prefers an explicitly tagged binding over an untagged
+// exact one regardless of field order, mirroring the decode side's
+// tagged-beats-untagged tiebreak; at the top level, where the decode plan
+// keeps every binding of the group, the first exact match in field order picks
+// the encode source. Ties the tiebreak cannot resolve need no check here:
+// [Compile] already rejects them, and [Decoder.Encoder] is only reachable
+// through a compiled Decoder. A visited-types set terminates pointer-embedding
+// cycles, mirroring collectDecodeFields' guard.
+func resolveEncodeField(rt reflect.Type, name string) ([]int, map[string]string, bool) {
+	type level struct {
+		path []int
+		typ  reflect.Type
 	}
-	// Fold pass: only untagged fields fold. The decode side folds solely the
-	// field-name fallback (matchGroupName); an explicit `regex:` tag is matched
-	// exactly (subexpIndexes). Folding a tag here would bind a group that the
-	// decoder maps back to nothing, silently corrupting the round-trip — e.g. a
-	// field `regex:"ID,default=x"` against a `(?P<id>…)` group would Encode via
-	// the fold yet Decode to the default. See buildDecodePlan in decoder.go.
-	for i := range rt.NumField() {
-		sf := rt.Field(i)
-		if !sf.IsExported() {
-			continue
+	levels := []level{{nil, rt}}
+	visited := []reflect.Type{rt}
+	for top := true; len(levels) > 0; top = false {
+		// Exact pass first so an exact name never loses to an earlier fold
+		// sibling at the same depth. Below the top level a tagged exact match
+		// beats an untagged one regardless of field order — the decode side's
+		// tagged-beats-untagged tiebreak makes the tagged field the decode
+		// winner, so it must be the encode source too. At the top level every
+		// exact binding stays in the decode plan, so field order decides.
+		var untaggedPath []int
+		var untaggedOpts map[string]string
+		for _, lv := range levels {
+			for i := range lv.typ.NumField() {
+				sf := lv.typ.Field(i)
+				if !sf.IsExported() {
+					continue
+				}
+				candidate, opts, tagged, promoted, skip := fieldCandidateName(sf)
+				if skip || promoted {
+					continue
+				}
+				if candidate != name {
+					continue
+				}
+				if tagged || top {
+					return appendFieldPath(lv.path, i), opts, true
+				}
+				if untaggedPath == nil {
+					untaggedPath = appendFieldPath(lv.path, i)
+					untaggedOpts = opts
+				}
+			}
 		}
-		candidate, opts, tagged, skip := fieldCandidateName(sf)
-		if skip || tagged {
-			continue
+		if untaggedPath != nil {
+			return untaggedPath, untaggedOpts, true
 		}
-		if strings.EqualFold(candidate, name) {
-			return i, opts, true
+		// Fold pass: only untagged fields fold. The decode side folds solely the
+		// field-name fallback (matchGroupName); an explicit `regex:` tag is matched
+		// exactly (subexpIndexes). Folding a tag here would bind a group that the
+		// decoder maps back to nothing, silently corrupting the round-trip — e.g. a
+		// field `regex:"ID,default=x"` against a `(?P<id>…)` group would Encode via
+		// the fold yet Decode to the default. See buildDecodePlan in decoder.go.
+		for _, lv := range levels {
+			for i := range lv.typ.NumField() {
+				sf := lv.typ.Field(i)
+				if !sf.IsExported() {
+					continue
+				}
+				candidate, opts, tagged, promoted, skip := fieldCandidateName(sf)
+				if skip || tagged || promoted {
+					continue
+				}
+				if strings.EqualFold(candidate, name) {
+					return appendFieldPath(lv.path, i), opts, true
+				}
+			}
 		}
+		// No match at this depth — descend one level into the promoted
+		// embedded structs.
+		var next []level
+		for _, lv := range levels {
+			for i := range lv.typ.NumField() {
+				sf := lv.typ.Field(i)
+				if !sf.IsExported() {
+					continue
+				}
+				if _, _, _, promoted, _ := fieldCandidateName(sf); !promoted {
+					continue
+				}
+				et := inlineStructType(sf)
+				if typeOnPath(visited, et) {
+					continue
+				}
+				visited = append(visited, et)
+				next = append(next, level{path: appendFieldPath(lv.path, i), typ: et})
+			}
+		}
+		levels = next
 	}
-	return 0, nil, false
+	return nil, nil, false
 }
 
 // fieldCandidateName returns the name a field is addressable by — its
 // `regex:"name"` tag name when set, otherwise its own field name — plus the
-// parsed tag options, whether the name came from an explicit tag (tagged), and
-// whether the field is excluded (`regex:"-"`). Callers fold only untagged
-// candidates, mirroring the decoder's exact-tag / fold-field-name split.
-func fieldCandidateName(sf reflect.StructField) (name string, opts map[string]string, tagged, skip bool) {
+// parsed tag options, whether the name came from an explicit tag (tagged),
+// whether the field dissolves into `inline` promotion (promoted: a valid
+// nameless `inline` flag on an embedded struct, making the field itself not
+// addressable by any group), and whether the field is excluded (`regex:"-"`).
+// Callers fold only untagged candidates, mirroring the decoder's exact-tag /
+// fold-field-name split.
+func fieldCandidateName(sf reflect.StructField) (name string, opts map[string]string, tagged, promoted, skip bool) {
 	// required is a decode-side presence flag; encoding always emits the field's
 	// actual value, so it is irrelevant here.
-	tagName, opts, _, skip := parseFieldTag(sf)
+	tagName, opts, _, inline, skip := parseFieldTag(sf)
 	if skip {
-		return "", nil, false, true
+		return "", nil, false, false, true
+	}
+	if inline && tagName == "" && inlineStructType(sf) != nil {
+		return "", nil, false, true, false
 	}
 	if tagName == "" {
-		return sf.Name, opts, false, false
+		return sf.Name, opts, false, false, false
 	}
-	return tagName, opts, true, false
+	return tagName, opts, true, false, false
 }
 
 // validateEncodeField rejects, at construction time, a mapped field whose type
@@ -678,8 +758,11 @@ func (e *Encoder[T]) encode(v T, strict bool, entrypoint string) (string, error)
 			b.WriteString(seg.literal)
 			continue
 		}
-		field := rv.Field(seg.fieldIndex)
-		s, err := encodeFieldValue(field, seg.opts)
+		var s string
+		field, err := encodeFieldPath(rv, seg.fieldIndex)
+		if err == nil {
+			s, err = encodeFieldValue(field, seg.opts)
+		}
 		if err == nil && strict {
 			// The probe carries the adjacent-context runes baked into strictRE
 			// (both empty for the common no-assertion sub-pattern, keeping the
@@ -693,17 +776,39 @@ func (e *Encoder[T]) encode(v T, strict bool, entrypoint string) (string, error)
 			}
 		}
 		if err != nil {
-			sf := e.rtype.Field(seg.fieldIndex)
+			sf := e.rtype.FieldByIndex(seg.fieldIndex)
 			return "", fmt.Errorf("%s: %w", entrypoint, &EncodeError{
 				Field: sf.Name,
 				Group: seg.name,
-				Type:  field.Type().String(),
+				Type:  sf.Type.String(),
 				Err:   err,
 			})
 		}
 		b.WriteString(s)
 	}
 	return b.String(), nil
+}
+
+// encodeFieldPath resolves an encode segment's index path against rv (the
+// addressable reflect.Value of the source struct), returning the leaf field.
+// Intermediate steps are `inline`-promoted embedded fields; a pointer-embedded
+// step that is nil fails — the leaf value cannot be read through it, mirroring
+// encodeFieldValue's nil-pointer error (every derived slot must render). The
+// decode side allocates the intermediate instead (walkFieldPath): an absent
+// destination can be created, an absent source cannot. The common flat case
+// (len(path) == 1) reduces to a single Field call.
+func encodeFieldPath(rv reflect.Value, path []int) (reflect.Value, error) {
+	field := rv.Field(path[0])
+	for _, i := range path[1:] {
+		if field.Kind() == reflect.Ptr {
+			if field.IsNil() {
+				return reflect.Value{}, fmt.Errorf("cannot encode through nil embedded pointer of type %s", field.Type())
+			}
+			field = field.Elem()
+		}
+		field = field.Field(i)
+	}
+	return field, nil
 }
 
 // encodeFieldValue renders one struct field to its string form — the inverse of

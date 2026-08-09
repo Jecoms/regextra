@@ -1269,3 +1269,442 @@ func TestSharedDecodePlan_AllPathsAgree(t *testing.T) {
 		t.Errorf("UnmarshalAll = %+v, want %+v", ua, want)
 	}
 }
+
+// ── Embedded-struct promotion: `regex:",inline"` ──────────────────────────────
+
+// InlineCycleA / InlineCycleB form a mutual pointer-embedding cycle. They are
+// package-level (function-local types cannot be mutually recursive) and
+// exported (promotion, like every field rule, only sees exported fields).
+type InlineCycleA struct {
+	*InlineCycleB `regex:",inline"`
+	AVal          string `regex:"aval"`
+}
+
+type InlineCycleB struct {
+	*InlineCycleA `regex:",inline"`
+	BVal          string `regex:"bval"`
+}
+
+func TestCompile_inlinePromotesEmbeddedFields(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		Code int    `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+) (?P<code>\d+) (?P<path>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("example.com 200 /index.html")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	want := Line{Meta: Meta{Host: "example.com", Code: 200}, Path: "/index.html"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("One = %+v, want %+v", got, want)
+	}
+}
+
+func TestCompile_inlineNestedPromotion(t *testing.T) {
+	type Inner struct {
+		ID string `regex:"id"`
+	}
+	type Middle struct {
+		Inner `regex:",inline"`
+		Kind  string `regex:"kind"`
+	}
+	type Outer struct {
+		Middle `regex:",inline"`
+		Name   string `regex:"name"`
+	}
+	d, err := rx.Compile[Outer](`(?P<id>\w+)/(?P<kind>\w+)/(?P<name>\w+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("i42/widget/alpha")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	want := Outer{Middle: Middle{Inner: Inner{ID: "i42"}, Kind: "widget"}, Name: "alpha"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("One = %+v, want %+v", got, want)
+	}
+}
+
+func TestCompile_inlinePointerEmbeddedAllocates(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		*Meta `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+) (?P<path>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("example.com /idx")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Meta == nil {
+		t.Fatal("nil embedded pointer was not allocated for a promoted field")
+	}
+	if got.Host != "example.com" || got.Path != "/idx" {
+		t.Errorf("One = %+v / Meta %+v, want Host example.com Path /idx", got, *got.Meta)
+	}
+}
+
+func TestCompile_inlinePointerEmbeddedDefaultAllocates(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host,default=fallback"`
+	}
+	type Line struct {
+		*Meta `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	// The promoted field has a default, so it always yields a value and the
+	// pointer is allocated even though the group is optional and absent.
+	d, err := rx.Compile[Line](`(?:(?P<host>\S+) )?(?P<path>/\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("/idx")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Meta == nil || got.Host != "fallback" {
+		t.Fatalf("One = %+v, want allocated Meta with default host", got)
+	}
+}
+
+func TestCompile_inlinePointerEmbeddedStaysNilWhenNothingDecodes(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		*Meta `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	// The promoted group is optional and absent, with no default — the field
+	// is skipped, so the embedded pointer is never allocated: allocation
+	// happens on the way down to a field that actually decodes, not upfront.
+	d, err := rx.Compile[Line](`(?:(?P<host>\S+) )?(?P<path>/\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("/idx")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Meta != nil {
+		t.Errorf("Meta = %+v, want nil (no promoted field decoded)", got.Meta)
+	}
+	if got.Path != "/idx" {
+		t.Errorf("Path = %q, want /idx", got.Path)
+	}
+}
+
+func TestCompile_inlineShadowingOuterFieldWins(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Host string `regex:"host"` // shallower binding shadows the promoted one
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("example.com")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Host != "example.com" {
+		t.Errorf("outer Host = %q, want example.com", got.Host)
+	}
+	if got.Meta.Host != "" {
+		t.Errorf("promoted Meta.Host = %q, want shadowed (zero)", got.Meta.Host)
+	}
+}
+
+func TestCompile_inlineEqualDepthDuplicateRejected(t *testing.T) {
+	type MetaA struct {
+		Host string `regex:"host"`
+	}
+	type MetaB struct {
+		Server string `regex:"host"`
+	}
+	type Line struct {
+		MetaA `regex:",inline"`
+		MetaB `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+) (?P<path>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want equal-depth duplicate binding rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error %q does not name the contested group", err)
+	}
+}
+
+func TestCompile_inlineEqualDepthTaggedBeatsUntagged(t *testing.T) {
+	// encoding/json's tiebreak: at equal promotion depth, a sole explicitly
+	// tagged binding wins over a field-name (fold) one — the tie compiles.
+	type ServerInfo struct {
+		Addr string `regex:"host"`
+	}
+	type Metadata struct {
+		Host string // untagged: fold-binds "host"
+	}
+	type Request struct {
+		ServerInfo `regex:",inline"`
+		Metadata   `regex:",inline"`
+	}
+	d, err := rx.Compile[Request](`(?P<host>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v, want the tagged binding to break the tie", err)
+	}
+	got, err := d.One("example.com")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Addr != "example.com" {
+		t.Errorf("tagged ServerInfo.Addr = %q, want example.com", got.Addr)
+	}
+	if got.Host != "" {
+		t.Errorf("untagged Metadata.Host = %q, want dropped (zero)", got.Host)
+	}
+}
+
+func TestCompile_inlineEqualDepthUntaggedTieRejected(t *testing.T) {
+	// No tagged binding among the equal-depth winners: still ambiguous.
+	type MetaA struct {
+		Host string // fold-binds "host"
+	}
+	type MetaB struct {
+		Host string // fold-binds "host" too
+	}
+	type Line struct {
+		MetaA `regex:",inline"`
+		MetaB `regex:",inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want untagged equal-depth tie rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
+func TestCompile_inlineOnNonEmbeddedFieldRejected(t *testing.T) {
+	type Line struct {
+		Host string `regex:",inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want inline-on-non-embedded rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
+func TestCompile_inlineCombinedWithNameRejected(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:"meta,inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want name+inline rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
+func TestCompile_inlinePromotedUndeclaredGroupRejected(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		TS   string `regex:"ts"` // not declared on the pattern
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want promoted undeclared group rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
+func TestCompile_inlinePromotedRequired(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host,required"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?:(?P<host>\S+) )?(?P<path>/\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	_, err = d.One("/idx")
+	var rge *rx.RequiredGroupError
+	if !errors.As(err, &rge) {
+		t.Fatalf("One returned %v, want *RequiredGroupError", err)
+	}
+	if rge.Field != "Host" || rge.Group != "host" {
+		t.Errorf("RequiredGroupError = %+v, want Field Host / Group host", rge)
+	}
+}
+
+func TestCompile_inlinePromotedDecodeErrorNamesLeafField(t *testing.T) {
+	type Meta struct {
+		Code int `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	d, err := rx.Compile[Line](`(?P<code>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	_, err = d.One("notanumber")
+	var de *rx.DecodeError
+	if !errors.As(err, &de) {
+		t.Fatalf("One returned %v, want *DecodeError", err)
+	}
+	if de.Field != "Code" || de.Group != "code" || de.Type != "int" {
+		t.Errorf("DecodeError = %+v, want Field Code / Group code / Type int", de)
+	}
+}
+
+func TestCompile_inlinePromotedDefaultValidated(t *testing.T) {
+	type Meta struct {
+		Code int `regex:"code,default=notanint"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<code>\d+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want promoted bad default rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
+func TestCompile_embeddedWithoutInlineStaysUnpromoted(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta        // no inline flag — historical behavior: fields stay invisible
+		Path string `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+) (?P<path>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("example.com /idx")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Host != "" {
+		t.Errorf("Meta.Host = %q, want zero (no promotion without inline)", got.Host)
+	}
+	if got.Path != "/idx" {
+		t.Errorf("Path = %q, want /idx", got.Path)
+	}
+}
+
+func TestCompile_inlineExcludedEmbeddedField(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:"-"` // excluded entirely; inline never considered
+		Path string      `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+) (?P<path>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("example.com /idx")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Host != "" {
+		t.Errorf("Meta.Host = %q, want zero (embedded field excluded)", got.Host)
+	}
+}
+
+func TestCompile_inlineEmbeddingCycleTerminates(t *testing.T) {
+	d, err := rx.Compile[InlineCycleA](`(?P<aval>\w+) (?P<bval>\w+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	got, err := d.One("alpha beta")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.AVal != "alpha" {
+		t.Errorf("AVal = %q, want alpha", got.AVal)
+	}
+	if got.InlineCycleB == nil || got.BVal != "beta" {
+		t.Errorf("promoted BVal not decoded: %+v", got.InlineCycleB)
+	}
+}
+
+func TestDecoder_inlineAllAndIter(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	d, err := rx.Compile[Line](`(?P<host>\S+) (?P<path>/\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v", err)
+	}
+	input := "a.com /1 b.com /2"
+	want := []Line{
+		{Meta: Meta{Host: "a.com"}, Path: "/1"},
+		{Meta: Meta{Host: "b.com"}, Path: "/2"},
+	}
+	all, err := d.All(input)
+	if err != nil {
+		t.Fatalf("All returned %v", err)
+	}
+	if !reflect.DeepEqual(all, want) {
+		t.Errorf("All = %+v, want %+v", all, want)
+	}
+	var got []Line
+	for v, err := range d.Iter(input) {
+		if err != nil {
+			t.Fatalf("Iter yielded %v", err)
+		}
+		got = append(got, v)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Iter = %+v, want %+v", got, want)
+	}
+}

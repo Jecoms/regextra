@@ -798,6 +798,28 @@ func ExampleUnmarshal_structTags() {
 	// Output: User: alice, Domain: example.com
 }
 
+func ExampleUnmarshal_inline() {
+	type RequestInfo struct {
+		Method string `regex:"method"`
+		Path   string `regex:"path"`
+	}
+	type LogLine struct {
+		RequestInfo `regex:",inline"` // promotes Method and Path
+		Status      int               `regex:"status"`
+	}
+
+	re := regexp.MustCompile(`(?P<method>\w+) (?P<path>\S+) -> (?P<status>\d+)`)
+	var line LogLine
+	err := rx.Unmarshal(re, "GET /health -> 200", &line)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("%s %s = %d\n", line.Method, line.Path, line.Status)
+	// Output: GET /health = 200
+}
+
 func TestUnmarshalAll(t *testing.T) {
 	t.Run("multiple matches", func(t *testing.T) {
 		type Person struct {
@@ -2360,5 +2382,158 @@ func TestUnmarshal_concurrentFirstUse(t *testing.T) {
 		if got[i] != want {
 			t.Errorf("goroutine %d: decoded %+v, want %+v", i, got[i], want)
 		}
+	}
+}
+
+// ── Embedded-struct promotion: `regex:",inline"` (lenient path) ───────────────
+
+func TestUnmarshal_inlinePromotesEmbeddedFields(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		Code int    `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+) (?P<code>\d+) (?P<path>\S+)`)
+	var got Line
+	if err := rx.Unmarshal(re, "example.com 200 /index.html", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	want := Line{Meta: Meta{Host: "example.com", Code: 200}, Path: "/index.html"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Unmarshal = %+v, want %+v", got, want)
+	}
+}
+
+func TestUnmarshal_inlineMisplacedFlagIgnored(t *testing.T) {
+	type Line struct {
+		Host string `regex:",inline"` // not embedded: lenient ignores the flag
+	}
+	re := regexp.MustCompile(`(?P<host>\S+)`)
+	var got Line
+	if err := rx.Unmarshal(re, "example.com", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	// With the flag ignored, the untagged name falls back to the field name.
+	if got.Host != "example.com" {
+		t.Errorf("Host = %q, want example.com (flag ignored, name fallback)", got.Host)
+	}
+}
+
+func TestUnmarshal_inlineCombinedWithNameKeepsNameBinding(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:"meta,inline"` // lenient: inline ignored, name binding kept
+		Path string                `regex:"path"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+) (?P<path>\S+)`)
+	var got Line
+	if err := rx.Unmarshal(re, "example.com /idx", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	// No promotion happened: the embedded field is bound (to the undeclared
+	// group "meta", so it is skipped), and Host stays zero.
+	if got.Host != "" {
+		t.Errorf("Meta.Host = %q, want zero (no promotion when a name is present)", got.Host)
+	}
+	if got.Path != "/idx" {
+		t.Errorf("Path = %q, want /idx", got.Path)
+	}
+}
+
+func TestUnmarshal_inlineEqualDepthDuplicateDropped(t *testing.T) {
+	type MetaA struct {
+		Host string `regex:"host"`
+	}
+	type MetaB struct {
+		Server string `regex:"host"`
+	}
+	type Line struct {
+		MetaA `regex:",inline"`
+		MetaB `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+) (?P<path>\S+)`)
+	var got Line
+	if err := rx.Unmarshal(re, "example.com /idx", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	// The equal-depth ambiguous bindings are both dropped (encoding/json's
+	// rule); the unambiguous field still decodes.
+	if got.Host != "" || got.Server != "" {
+		t.Errorf("ambiguous promoted fields = %q/%q, want both dropped", got.Host, got.Server)
+	}
+	if got.Path != "/idx" {
+		t.Errorf("Path = %q, want /idx", got.Path)
+	}
+}
+
+func TestUnmarshal_inlineEqualDepthTaggedBeatsUntagged(t *testing.T) {
+	// encoding/json's tiebreak on the lenient path: a sole explicitly tagged
+	// binding at equal depth wins; the field-name (fold) binding is dropped.
+	type ServerInfo struct {
+		Addr string `regex:"host"`
+	}
+	type Metadata struct {
+		Host string // untagged: fold-binds "host"
+	}
+	type Request struct {
+		ServerInfo `regex:",inline"`
+		Metadata   `regex:",inline"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+)`)
+	var got Request
+	if err := rx.Unmarshal(re, "example.com", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	if got.Addr != "example.com" {
+		t.Errorf("tagged ServerInfo.Addr = %q, want example.com", got.Addr)
+	}
+	if got.Host != "" {
+		t.Errorf("untagged Metadata.Host = %q, want dropped (zero)", got.Host)
+	}
+}
+
+func TestUnmarshal_inlinePromotedUndeclaredGroupSkipped(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		TS   string `regex:"ts"` // not declared: lenient skips it
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+)`)
+	var got Line
+	if err := rx.Unmarshal(re, "example.com", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	if got.Host != "example.com" || got.TS != "" {
+		t.Errorf("Unmarshal = %+v, want Host set and TS zero", got.Meta)
+	}
+}
+
+func TestUnmarshalAll_inlinePromotesEmbeddedFields(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+) (?P<path>/\S+)`)
+	var got []Line
+	if err := rx.UnmarshalAll(re, "a.com /1 b.com /2", &got); err != nil {
+		t.Fatalf("UnmarshalAll returned %v", err)
+	}
+	want := []Line{
+		{Meta: Meta{Host: "a.com"}, Path: "/1"},
+		{Meta: Meta{Host: "b.com"}, Path: "/2"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("UnmarshalAll = %+v, want %+v", got, want)
 	}
 }
