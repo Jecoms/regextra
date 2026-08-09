@@ -1003,3 +1003,171 @@ func ExampleDecoder_MustEncoder() {
 	fmt.Println(s)
 	// Output: Alice is 30
 }
+
+// ── Embedded-struct promotion: `regex:",inline"` ──────────────────────────────
+
+func TestEncoder_inlinePromotedFields(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		Code int    `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	e := mustEncoder[Line](t, `(?P<host>\S+) (?P<code>\d+) (?P<path>\S+)`)
+	got, err := e.Encode(Line{Meta: Meta{Host: "example.com", Code: 200}, Path: "/idx"})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if want := "example.com 200 /idx"; got != want {
+		t.Errorf("Encode = %q, want %q", got, want)
+	}
+}
+
+func TestEncoder_inlineNestedPromotion(t *testing.T) {
+	type Inner struct {
+		ID string `regex:"id"`
+	}
+	type Middle struct {
+		Inner `regex:",inline"`
+		Kind  string `regex:"kind"`
+	}
+	type Outer struct {
+		Middle `regex:",inline"`
+		Name   string `regex:"name"`
+	}
+	e := mustEncoder[Outer](t, `(?P<id>\w+)/(?P<kind>\w+)/(?P<name>\w+)`)
+	got, err := e.Encode(Outer{Middle: Middle{Inner: Inner{ID: "i42"}, Kind: "widget"}, Name: "alpha"})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if want := "i42/widget/alpha"; got != want {
+		t.Errorf("Encode = %q, want %q", got, want)
+	}
+}
+
+func TestEncoder_inlinePointerEmbedded(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		*Meta `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	e := mustEncoder[Line](t, `(?P<host>\S+) (?P<path>\S+)`)
+	got, err := e.Encode(Line{Meta: &Meta{Host: "example.com"}, Path: "/idx"})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if want := "example.com /idx"; got != want {
+		t.Errorf("Encode = %q, want %q", got, want)
+	}
+}
+
+func TestEncoder_inlineNilEmbeddedPointerErrors(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		*Meta `regex:",inline"`
+		Path  string `regex:"path"`
+	}
+	e := mustEncoder[Line](t, `(?P<host>\S+) (?P<path>\S+)`)
+	_, err := e.Encode(Line{Path: "/idx"})
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("Encode returned %v, want *EncodeError", err)
+	}
+	if ee.Field != "Host" || ee.Group != "host" {
+		t.Errorf("EncodeError = %+v, want Field Host / Group host", ee)
+	}
+	if !strings.Contains(ee.Err.Error(), "nil embedded pointer") {
+		t.Errorf("cause %q does not name the nil embedded pointer", ee.Err)
+	}
+}
+
+func TestEncoder_inlineShadowingOuterFieldWins(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Host string `regex:"host"` // shallower binding shadows the promoted one
+	}
+	e := mustEncoder[Line](t, `(?P<host>\S+)`)
+	got, err := e.Encode(Line{Meta: Meta{Host: "inner.example"}, Host: "outer.example"})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if got != "outer.example" {
+		t.Errorf("Encode = %q, want the outer field's value", got)
+	}
+}
+
+func TestEncoder_inlineFoldFallbackOnPromotedField(t *testing.T) {
+	type Meta struct {
+		Host string // untagged: folds against group "HOST"
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	e := mustEncoder[Line](t, `(?P<HOST>\S+)`)
+	got, err := e.Encode(Line{Meta: Meta{Host: "example.com"}})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if got != "example.com" {
+		t.Errorf("Encode = %q, want example.com", got)
+	}
+}
+
+func TestEncodeStrict_inlinePromotedFieldChecked(t *testing.T) {
+	type Meta struct {
+		Code int `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+	}
+	e := mustEncoder[Line](t, `(?P<code>\d\d\d)`)
+	if _, err := e.EncodeStrict(Line{Meta: Meta{Code: 200}}); err != nil {
+		t.Fatalf("EncodeStrict returned %v for a matching value", err)
+	}
+	_, err := e.EncodeStrict(Line{Meta: Meta{Code: 7}})
+	if !errors.Is(err, rx.ErrValueMismatch) {
+		t.Fatalf("EncodeStrict returned %v, want ErrValueMismatch through a promoted field", err)
+	}
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) || ee.Field != "Code" {
+		t.Errorf("EncodeError = %+v, want Field Code", ee)
+	}
+}
+
+func TestEncode_inlineRoundTrip(t *testing.T) {
+	type Meta struct {
+		Host string `regex:"host"`
+		Code int    `regex:"code"`
+	}
+	type Line struct {
+		Meta `regex:",inline"`
+		Path string `regex:"path"`
+	}
+	pattern := `(?P<host>\S+) (?P<code>\d+) (?P<path>\S+)`
+	d := rx.MustCompile[Line](pattern)
+	e, err := d.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder returned %v", err)
+	}
+	orig := Line{Meta: Meta{Host: "example.com", Code: 200}, Path: "/index.html"}
+	s, err := e.Encode(orig)
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	back, err := d.One(s)
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if back != orig {
+		t.Errorf("round trip = %+v, want %+v", back, orig)
+	}
+}

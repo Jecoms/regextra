@@ -206,6 +206,17 @@ func getDecodePlan(rt reflect.Type, re *regexp.Regexp) ([]fieldDecoder, error) {
 //   - A group that did not participate in the match (e.g. an optional group),
 //     or that matched an empty span, leaves the field unchanged — unless the
 //     field has a `default=` tag option, which substitutes instead
+//   - An embedded struct (or *struct) field tagged `regex:",inline"` is
+//     promoted: its exported fields join the mapping as if declared on the
+//     outer struct, under the same rules (tags, name fallback, `default=`,
+//     `required`), recursively through nested `inline` tags. A nil embedded
+//     pointer is allocated when a promoted field beneath it decodes.
+//     Precedence follows encoding/json: a shallower field bound to a group
+//     shadows a deeper promoted field bound to the same group, and two
+//     promoted fields binding the same group at equal depth are ambiguous —
+//     both are dropped here (best-effort posture), while the strict [Compile]
+//     rejects the struct. An embedded field without the flag keeps the
+//     historical behavior (no promotion); `regex:"-"` excludes it entirely
 //
 // On no match, Unmarshal returns nil and leaves *v unchanged — no match is data
 // absence, not a failure. Callers who need to distinguish "matched" from
@@ -356,21 +367,26 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 //   - layout  — for time.Time fields only: a single time.Parse layout used
 //     instead of the default fallback list.
 //
-// The `required` flag (a lone token, no `=`) marks the field's group as
-// mandatory: decode fails with a *[RequiredGroupError] when the group does not
-// participate in a match or matches an empty span and no `default=` supplies a
-// value. It is the first recognized lone-token flag (the slot the forward-compat
-// rules below reserved).
+// Two flag-style tokens (lone tokens, no `=`) are recognized:
+//   - required — marks the field's group as mandatory: decode fails with a
+//     *[RequiredGroupError] when the group does not participate in a match or
+//     matches an empty span and no `default=` supplies a value. The first
+//     recognized lone-token flag (the slot the forward-compat rules below
+//     reserved).
+//   - inline — on an embedded struct (or *struct) field only: promotes the
+//     embedded struct's fields into the decode/encode plan with
+//     encoding/json-style precedence (see buildDecodePlan). The second
+//     recognized lone-token flag.
 //
 // Forward-compat rules (part of the stability contract since v1 — see the
 // package doc's "Tag grammar" section for the full statement and rationale):
 //   - Unknown key=value pairs are preserved in the returned map so future
 //     option additions don't need to touch the parser; adding a new option
 //     key is therefore not a breaking change.
-//   - Lone tokens without `=` other than the recognized `required` flag are
-//     silently ignored today; the slot remains reserved for future flag-style
-//     options, so callers must not rely on an unrecognized lone token staying
-//     inert.
+//   - Lone tokens without `=` other than the recognized `required` and `inline`
+//     flags are silently ignored today; the slot remains reserved for future
+//     flag-style options, so callers must not rely on an unrecognized lone
+//     token staying inert.
 //
 // The two forms differ:
 //   - `regex:""` (no tag) signals "no name", returning ("", nil, false); the
@@ -381,13 +397,13 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 //     gopkg.in/yaml. Only the bare `-` tag excludes; a leading `-` followed by
 //     options (e.g. `regex:"-,default=x"`) parses `-` as the group name, which
 //     matches no group since group names are Go identifiers.
-func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, required, skip bool) {
+func parseFieldTag(field reflect.StructField) (name string, opts map[string]string, required, inline, skip bool) {
 	tag := field.Tag.Get("regex")
 	if tag == "-" {
-		return "", nil, false, true
+		return "", nil, false, false, true
 	}
 	if tag == "" {
-		return "", nil, false, false
+		return "", nil, false, false, false
 	}
 	// Walk the comma-separated pieces with strings.Cut instead of allocating
 	// strings.Split's []string — the pieces are only visited once, in order,
@@ -396,7 +412,7 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 	first, rest, hasOpts := strings.Cut(tag, ",")
 	name = strings.TrimSpace(first)
 	if !hasOpts {
-		return name, nil, false, false
+		return name, nil, false, false, false
 	}
 	for more := true; more; {
 		var p string
@@ -404,14 +420,20 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		p = strings.TrimSpace(p)
 		k, v, ok := strings.Cut(p, "=")
 		if !ok {
-			// No '=': a lone token. `required` is the one recognized flag; it
-			// marks the field's group mandatory (enforced in runDecodePlan).
-			// Any other lone token — including an empty piece from a doubled,
-			// leading, or trailing comma — is silently ignored to keep the
-			// parser forward-compatible. An empty piece needs no separate guard:
-			// strings.Cut("", "=") returns ok=false, so it lands here too.
-			if k == "required" {
+			// No '=': a lone token. `required` and `inline` are the two
+			// recognized flags — `required` marks the field's group mandatory
+			// (enforced in runDecodePlan); `inline` opts an embedded struct
+			// field into promotion (consumed in buildDecodePlan and
+			// resolveEncodeField). Any other lone token — including an empty
+			// piece from a doubled, leading, or trailing comma — is silently
+			// ignored to keep the parser forward-compatible. An empty piece
+			// needs no separate guard: strings.Cut("", "=") returns ok=false,
+			// so it lands here too.
+			switch k {
+			case "required":
 				required = true
+			case "inline":
+				inline = true
 			}
 			continue
 		}
@@ -430,7 +452,7 @@ func parseFieldTag(field reflect.StructField) (name string, opts map[string]stri
 		}
 		opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
-	return name, opts, required, false
+	return name, opts, required, inline, false
 }
 
 // resolveGroupValue decides what a field receives given its group's raw match

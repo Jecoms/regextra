@@ -180,13 +180,25 @@ option. Currently recognized keys:
 	layout=<go-time-layout>   time.Time only. Used exclusively, instead of
 	                          the default RFC3339-and-friends fallback list.
 
-The grammar also recognizes one flag-style token (no `=`):
+The grammar also recognizes two flag-style tokens (no `=`):
 
 	required                  Decode fails with a *RequiredGroupError when
 	                          the named group does not participate in the
 	                          match or matches an empty span and no default=
 	                          supplies a value. A default= satisfies the
 	                          requirement, since it always yields a value.
+	inline                    Embedded struct (or *struct) fields only, with
+	                          no group name (`regex:",inline"`). Promotes the
+	                          embedded struct's exported fields into the
+	                          decode and encode plans as if declared on the
+	                          outer struct, with encoding/json precedence: a
+	                          shallower field bound to a group shadows a
+	                          deeper promoted one, and two promoted fields
+	                          binding the same group at equal depth are
+	                          rejected by [Compile] and dropped by
+	                          [Unmarshal]. Without the flag an embedded
+	                          field keeps the historical non-promoted
+	                          behavior. See [Unmarshal] for the full rules.
 
 The two "empty" forms differ, matching the convention in encoding/json,
 encoding/xml, and gopkg.in/yaml:
@@ -210,11 +222,11 @@ stability contract since v1:
     unknown keys; pin a minor version range if you need a specific
     recognized set.
 
-  - Lone tokens (no `=`) other than the recognized `required` flag are
-    silently ignored. Today, `regex:"name,foo"` is a no-op — the `foo` token is
-    dropped, so the field resolves exactly as `regex:"name"` would. This slot is
-    reserved for future flag-style options (the `required` flag above claimed the
-    first one; see the issue tracker at
+  - Lone tokens (no `=`) other than the recognized `required` and `inline`
+    flags are silently ignored. Today, `regex:"name,foo"` is a no-op — the
+    `foo` token is dropped, so the field resolves exactly as `regex:"name"`
+    would. This slot is reserved for future flag-style options (`required`
+    claimed the first one and `inline` the second; see the issue tracker at
     https://github.com/Jecoms/regextra/issues). A later minor release may start
     recognizing further lone tokens and giving them meaning, so adding
     `regex:"name,foo"` today is a no-op but may stop being one. Callers must not
