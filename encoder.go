@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"regexp/syntax"
 	"strconv"
 	"strings"
@@ -25,6 +26,15 @@ import (
 // irrelevant to encoding.
 var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 
+// ErrValueMismatch categorizes an [Encoder.EncodeStrict] failure where an
+// encoded field value does not re-match the sub-pattern of the capture group it
+// fills, so the output could decode to something other than the input. Callers
+// can branch on the failure kind with errors.Is rather than parsing the message;
+// the surrounding [EncodeError] (recover with errors.As) names the field and
+// group. Like [ErrNoMatch] and [ErrNotInvertible], it carries the bare
+// `regextra:` prefix reserved for package-level sentinels.
+var ErrValueMismatch = errors.New("regextra: encoded value does not match group sub-pattern")
+
 // Encoder is the typed inverse of [Decoder]: it renders a value of T back into a
 // string so that an Encode followed by an [Unmarshal] / [Decoder.One] on the same
 // pattern round-trips the original struct. Construct one with [Decoder.Encoder],
@@ -43,8 +53,9 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 //     resolves to a struct field with the same rules [Decoder] uses — the field's
 //     `regex:"name"` tag matched exactly, otherwise the field's own name matched
 //     exactly then case-insensitively via Unicode simple case folding; a `regex:"-"` field
-//     is excluded. The group's sub-pattern is discarded — the field's value fills
-//     the span.
+//     is excluded. The field's value fills the span; the group's sub-pattern is
+//     not part of the emitted text but is retained (compiled as an anchored
+//     matcher) for [Encoder.EncodeStrict]'s re-match check.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
 //     text and are dropped.
 //   - An unnamed group whose body is pure literal text is treated as that literal.
@@ -76,8 +87,11 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 // sub-patterns in the decode regex (a captured word wants `\S+`, not `.*`).
 // Values that collide with a surrounding literal delimiter, or two adjacent
 // captures with no literal between them, have no unambiguous decode boundary and
-// are out of scope. (A future option is to re-match each encoded value against
-// its group's sub-pattern at Encode time; that is deliberately not done here.)
+// are out of scope. [Encoder.EncodeStrict] verifies the per-group condition at
+// encode time — each encoded value is re-matched (fully anchored) against its
+// group's sub-pattern, and a miss fails with [ErrValueMismatch] — while the
+// delimiter-collision and adjacent-captures cases remain out of scope for it
+// too. [Encoder.Encode] performs no verification.
 //
 // Encoders are safe for concurrent use — no shared mutable state after
 // construction.
@@ -103,6 +117,15 @@ type encodeSegment struct {
 	// opts is the parsed tag options map for the field (e.g. {"layout": "..."}).
 	// Nil if the field has no options.
 	opts map[string]string
+	// subPattern is the source text of the group's sub-pattern (re-rendered from
+	// its parsed AST), retained for the EncodeStrict mismatch message. Valid only
+	// when field is true.
+	subPattern string
+	// strictRE is subPattern compiled as the anchored matcher `\A(?:sub)\z`,
+	// consulted only by EncodeStrict to verify the encoded value re-matches the
+	// group it fills. Compiled eagerly at derivation so Encoders keep no shared
+	// mutable state after construction. Valid only when field is true.
+	strictRE *regexp.Regexp
 }
 
 // RegexMarshaler is the interface implemented by types that render themselves
@@ -333,11 +356,24 @@ func walkCapture(rt reflect.Type, re *syntax.Regexp, sb *encodeSegmentBuilder) e
 	if err := validateEncodeField(rt.Field(idx)); err != nil {
 		return err
 	}
+	// Retain the group's sub-pattern as an anchored matcher for EncodeStrict.
+	// The AST re-render bakes flags per node (a `(?i)` literal renders as
+	// `(?i:…)`), so the standalone compile preserves the original semantics.
+	subPattern := re.Sub[0].String()
+	strictRE, err := regexp.Compile(`\A(?:` + subPattern + `)\z`)
+	if err != nil {
+		// Unreachable in practice — the sub-pattern re-renders from an AST that
+		// already parsed — but surfaced defensively rather than panicked,
+		// mirroring the parse branch in Encoder().
+		return fmt.Errorf("%w: %w", ErrInvalidPattern, err)
+	}
 	sb.addField(encodeSegment{
 		field:      true,
 		fieldIndex: idx,
 		name:       re.Name,
 		opts:       opts,
+		subPattern: subPattern,
+		strictRE:   strictRE,
 	})
 	return nil
 }
@@ -502,6 +538,35 @@ func encodableType(t reflect.Type) bool {
 // actual value. `layout=` is honored so a time.Time re-parses under [Decoder]'s
 // exclusive-layout rule.
 func (e *Encoder[T]) Encode(v T) (string, error) {
+	return e.encode(v, false, "regextra.Encoder.Encode")
+}
+
+// EncodeStrict is like [Encoder.Encode] but additionally verifies that each
+// encoded field value re-matches the sub-pattern of the capture group it fills —
+// the exact per-group condition the round-trip contract (see [Encoder]) places
+// on the caller. A value that would not re-match makes EncodeStrict return an
+// [EncodeError] (recover with [errors.As]) naming the field and group, whose
+// underlying cause wraps [ErrValueMismatch] and reports the rendered value and
+// the sub-pattern it failed.
+//
+// Each check is a full anchored match (`\A(?:sub)\z`), so a value that only
+// partially matches its sub-pattern fails. The cost is one regexp match per
+// field per call; [Encoder.Encode] skips the checks entirely.
+//
+// EncodeStrict verifies the contract's stated per-group condition, not a full
+// re-decode: values that collide with a surrounding literal delimiter, or two
+// adjacent captures with no literal between them, remain out of scope (e.g.
+// `(?P<a>.+)-(?P<b>.+)` with a = "x-y" passes per-group yet decodes
+// differently).
+func (e *Encoder[T]) EncodeStrict(v T) (string, error) {
+	return e.encode(v, true, "regextra.Encoder.EncodeStrict")
+}
+
+// encode is the shared core of [Encoder.Encode] and [Encoder.EncodeStrict]:
+// one plan walk, with the strict flag adding the anchored re-match check per
+// field segment. entrypoint is the `regextra.<Entrypoint>` prefix the caller
+// wraps its errors with.
+func (e *Encoder[T]) encode(v T, strict bool, entrypoint string) (string, error) {
 	// Reflect on v through its address so the value is addressable and fields
 	// with pointer-receiver marshalers dispatch via Addr() — the same reason
 	// setFieldValue relies on addressability on the decode side.
@@ -518,9 +583,12 @@ func (e *Encoder[T]) Encode(v T) (string, error) {
 		}
 		field := rv.Field(seg.fieldIndex)
 		s, err := encodeFieldValue(field, seg.opts)
+		if err == nil && strict && !seg.strictRE.MatchString(s) {
+			err = fmt.Errorf("%w: value %q does not match sub-pattern `%s`", ErrValueMismatch, s, seg.subPattern)
+		}
 		if err != nil {
 			sf := e.rtype.Field(seg.fieldIndex)
-			return "", fmt.Errorf("regextra.Encoder.Encode: %w", &EncodeError{
+			return "", fmt.Errorf("%s: %w", entrypoint, &EncodeError{
 				Field: sf.Name,
 				Group: seg.name,
 				Type:  field.Type().String(),

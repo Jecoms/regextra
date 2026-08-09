@@ -659,6 +659,152 @@ func deref(p *int) any {
 	return *p
 }
 
+// ── EncodeStrict: the per-group re-match check ─────────────────────────────────
+
+func TestEncodeStrict_matchesEncodeOnSuccess(t *testing.T) {
+	type P struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	e := mustEncoder[P](t, `(?P<name>\S+) is (?P<age>\d+)`)
+	v := P{Name: "Alice", Age: 30}
+	lenient, err := e.Encode(v)
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	strict, err := e.EncodeStrict(v)
+	if err != nil {
+		t.Fatalf("EncodeStrict returned %v", err)
+	}
+	if strict != lenient {
+		t.Errorf("EncodeStrict = %q, want Encode's output %q", strict, lenient)
+	}
+}
+
+func TestEncodeStrict_mismatchTypedError(t *testing.T) {
+	type P struct {
+		V string `regex:"v"`
+	}
+	e := mustEncoder[P](t, `(?P<v>\d+)`)
+	_, err := e.EncodeStrict(P{V: "not-a-number"})
+	if err == nil {
+		t.Fatal("EncodeStrict accepted a value that does not match the sub-pattern")
+	}
+	if !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("errors.Is(err, ErrValueMismatch) = false, want true (err = %v)", err)
+	}
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("errors.As(err, *EncodeError) = false, want true (err = %v)", err)
+	}
+	if ee.Field != "V" || ee.Group != "v" {
+		t.Errorf("EncodeError Field/Group = %q/%q, want %q/%q", ee.Field, ee.Group, "V", "v")
+	}
+	if !strings.Contains(err.Error(), "regextra.Encoder.EncodeStrict:") {
+		t.Errorf("error = %q, want the regextra.Encoder.EncodeStrict: prefix", err.Error())
+	}
+	// The message carries the AST re-render of the sub-pattern, which may
+	// normalize spelling — `\d+` renders as `[0-9]+`.
+	if !strings.Contains(err.Error(), `"not-a-number"`) || !strings.Contains(err.Error(), "`[0-9]+`") {
+		t.Errorf("error = %q, want it to name the rendered value and the sub-pattern", err.Error())
+	}
+}
+
+func TestEncodeStrict_anchoredNotPartial(t *testing.T) {
+	// `\d+` matches a prefix of "123x"; the check must be a full anchored match.
+	type P struct {
+		V string `regex:"v"`
+	}
+	e := mustEncoder[P](t, `(?P<v>\d+)`)
+	if _, err := e.EncodeStrict(P{V: "123x"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(123x) err = %v, want ErrValueMismatch (partial match must not pass)", err)
+	}
+	if _, err := e.EncodeStrict(P{V: "123"}); err != nil {
+		t.Errorf("EncodeStrict(123) returned %v, want nil", err)
+	}
+}
+
+func TestEncodeStrict_emptyValue(t *testing.T) {
+	type P struct {
+		V string `regex:"v"`
+	}
+	plus := mustEncoder[P](t, `v=(?P<v>\w+)`)
+	if _, err := plus.EncodeStrict(P{V: ""}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict empty vs \\w+ err = %v, want ErrValueMismatch", err)
+	}
+	star := mustEncoder[P](t, `v=(?P<v>\w*)`)
+	if got, err := star.EncodeStrict(P{V: ""}); err != nil || got != "v=" {
+		t.Errorf("EncodeStrict empty vs \\w* = %q, %v; want %q, nil", got, err, "v=")
+	}
+}
+
+func TestEncodeStrict_foldFlagSurvives(t *testing.T) {
+	// The sub-pattern is re-rendered from its parsed AST, where a (?i) flag is
+	// baked per node — the standalone matcher must keep the case-insensitivity.
+	type P struct {
+		V string `regex:"v"`
+	}
+	e := mustEncoder[P](t, `(?i)state=(?P<v>open|closed)`)
+	if _, err := e.EncodeStrict(P{V: "OPEN"}); err != nil {
+		t.Errorf("EncodeStrict(OPEN) under (?i) returned %v, want nil", err)
+	}
+	if _, err := e.EncodeStrict(P{V: "ajar"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(ajar) err = %v, want ErrValueMismatch", err)
+	}
+}
+
+func TestEncodeStrict_nestedNamedGroupRecompiles(t *testing.T) {
+	// A named group nested inside a checked group must recompile standalone in
+	// the anchored matcher and participate in the check.
+	type P struct {
+		Outer string `regex:"outer"`
+	}
+	e := mustEncoder[P](t, `(?P<outer>x(?P<inner>\d+))`)
+	if _, err := e.EncodeStrict(P{Outer: "x42"}); err != nil {
+		t.Errorf("EncodeStrict(x42) returned %v, want nil", err)
+	}
+	if _, err := e.EncodeStrict(P{Outer: "y42"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(y42) err = %v, want ErrValueMismatch", err)
+	}
+}
+
+func TestEncodeStrict_reportsRightField(t *testing.T) {
+	type P struct {
+		Name string `regex:"name"`
+		Age  string `regex:"age"`
+	}
+	e := mustEncoder[P](t, `(?P<name>\w+) is (?P<age>\d+)`)
+	_, err := e.EncodeStrict(P{Name: "Alice", Age: "old"})
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("errors.As(err, *EncodeError) = false, want true (err = %v)", err)
+	}
+	if ee.Field != "Age" || ee.Group != "age" {
+		t.Errorf("EncodeError Field/Group = %q/%q, want %q/%q", ee.Field, ee.Group, "Age", "age")
+	}
+}
+
+func TestEncodeStrict_runtimeEncodeErrorStillTyped(t *testing.T) {
+	// A field that fails to render at all (nil pointer) surfaces the same
+	// EncodeError EncodeStrict's mismatch path uses — under the strict
+	// entrypoint prefix, without ErrValueMismatch.
+	type P struct {
+		V *int `regex:"v"`
+	}
+	e := mustEncoder[P](t, `(?P<v>\d+)`)
+	_, err := e.EncodeStrict(P{V: nil})
+	var ee *rx.EncodeError
+	if !errors.As(err, &ee) {
+		t.Fatalf("errors.As(err, *EncodeError) = false, want true (err = %v)", err)
+	}
+	if errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("nil-pointer failure wrongly wraps ErrValueMismatch (err = %v)", err)
+	}
+	if !strings.Contains(err.Error(), "regextra.Encoder.EncodeStrict:") {
+		t.Errorf("error = %q, want the regextra.Encoder.EncodeStrict: prefix", err.Error())
+	}
+}
+
 // ── MustEncoder ───────────────────────────────────────────────────────────────
 
 func TestMustEncoder_returnsEncoder(t *testing.T) {
@@ -725,6 +871,25 @@ func ExampleDecoder_Encoder_roundTrip() {
 	back, _ := dec.One(s)
 	fmt.Printf("%q -> %+v\n", s, back)
 	// Output: "Alice is 30" -> {Name:Alice Age:30}
+}
+
+func ExampleEncoder_EncodeStrict() {
+	type Person struct {
+		Name string `regex:"name"`
+		Age  string `regex:"age"`
+	}
+	dec := rx.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+	enc := dec.MustEncoder()
+
+	// "old" does not re-match `\d+`, so the output would not decode back.
+	_, err := enc.EncodeStrict(Person{Name: "Alice", Age: "old"})
+	fmt.Println(errors.Is(err, rx.ErrValueMismatch))
+
+	s, _ := enc.EncodeStrict(Person{Name: "Alice", Age: "30"})
+	fmt.Println(s)
+	// Output:
+	// true
+	// Alice is 30
 }
 
 func ExampleDecoder_MustEncoder() {
