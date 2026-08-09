@@ -74,7 +74,8 @@ cp CLAUDE.md.example CLAUDE.md
   next to its source and test). Route each `Test*`/`Benchmark*` to the sibling
   file of the source it exercises, by function-name prefix (`TestUnmarshal*`,
   `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
-  `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*` → `encoder_*`;
+  `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*`/
+  `BenchmarkDeriveEncoder*` → `encoder_*`;
   `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
   `TestValidate*` → `regextra_*`).
 - **Do not add topical test files** (one per feature, bug fix, or issue). That

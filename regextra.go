@@ -170,8 +170,8 @@ Only the bare `-` tag excludes. A leading `-` followed by options
 (e.g. `regex:"-,default=x"`) parses `-` as the group name, which matches no
 group since regexp group names are Go identifiers.
 
-Two forward-compatibility rules in the tag parser are part of the stability
-contract since v1:
+Two forward-compatibility rules in the tag parser are part of the
+stability contract since v1:
 
   - Unknown key=value pairs are preserved, not rejected. The parser stores
     every key=value pair regardless of whether the key is currently

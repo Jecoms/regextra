@@ -355,8 +355,8 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 // value. It is the first recognized lone-token flag (the slot the forward-compat
 // rules below reserved).
 //
-// Forward-compat rules (locked in since v1 — see the package doc's
-// "Tag grammar" section for the full statement and rationale):
+// Forward-compat rules (part of the stability contract since v1 — see the
+// package doc's "Tag grammar" section for the full statement and rationale):
 //   - Unknown key=value pairs are preserved in the returned map so future
 //     option additions don't need to touch the parser; adding a new option
 //     key is therefore not a breaking change.
