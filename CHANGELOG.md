@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`(d *Decoder[T]).MustEncoder() *Encoder[T]` — panic-on-error encoder constructor for package-level vars.** Like `MustCompile` for `Compile`, `MustEncoder` wraps `Decoder.Encoder` and panics with its error unchanged, so the encoder can be built in a package-level `var` alongside the decoder and a non-invertible pattern fails at startup rather than at first use. The panic value is `Encoder()`'s wrapped error, so the `ErrNotInvertible` / `ErrInvalidStruct` sentinels stay reachable via `errors.Is` in a `recover()`. Additive, non-breaking. ([#196](https://github.com/Jecoms/regextra/issues/196))
+
 ### Documentation
 
 - **README restructured as a front page; the package documentation on pkg.go.dev is now the canonical per-symbol reference.** The README's per-function reference section was removed in favor of a one-row-per-symbol API table linking pkg.go.dev anchors; README-only contract text (conversion precedence, `time.Time` layout fallbacks, `Iter` streaming guidance) was ported into godoc before deletion. ([#194](https://github.com/Jecoms/regextra/issues/194), [#208](https://github.com/Jecoms/regextra/pull/208))

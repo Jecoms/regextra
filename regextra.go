@@ -53,7 +53,8 @@ By use case:
   - Decode the same shape repeatedly with cached reflect work: [Compile], [MustCompile], [Decoder]
   - Stream matches lazily (Go 1.23+ range-over-func): [Decoder.Iter]
   - Render a struct back into a string by inverting the decoder's own compiled
-    pattern (the typed inverse of [Decoder]): [Decoder.Encoder], [Encoder]
+    pattern (the typed inverse of [Decoder]): [Decoder.Encoder] (or
+    [Decoder.MustEncoder] for package-level vars), [Encoder]
   - Plug in caller-defined types in the unmarshal path: [RegexUnmarshaler]
   - Plug in caller-defined types in the encode path: [RegexMarshaler]
   - Compare against the no-match sentinel: [ErrNoMatch]

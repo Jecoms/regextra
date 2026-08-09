@@ -659,6 +659,46 @@ func deref(p *int) any {
 	return *p
 }
 
+// ── MustEncoder ───────────────────────────────────────────────────────────────
+
+func TestMustEncoder_returnsEncoder(t *testing.T) {
+	type P struct {
+		Name string `regex:"name"`
+	}
+	d := rx.MustCompile[P](`name=(?P<name>\w+)`)
+	e := d.MustEncoder()
+	if e == nil {
+		t.Fatal("MustEncoder returned nil")
+	}
+	s, err := e.Encode(P{Name: "Alice"})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if s != "name=Alice" {
+		t.Errorf("Encode = %q, want %q", s, "name=Alice")
+	}
+}
+
+func TestMustEncoder_recoversSentinel(t *testing.T) {
+	type P struct {
+		X string `regex:"x"`
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("MustEncoder did not panic on non-invertible pattern")
+		}
+		err, ok := r.(error)
+		if !ok {
+			t.Fatalf("recovered value is %T, want error", r)
+		}
+		if !errors.Is(err, rx.ErrNotInvertible) {
+			t.Errorf("recovered errors.Is(err, ErrNotInvertible) = false, want true (err = %v)", err)
+		}
+	}()
+	_ = rx.MustCompile[P](`(?P<x>\w+)-\d+`).MustEncoder()
+}
+
 // ── Examples (appear in godoc) ─────────────────────────────────────────────────
 
 func ExampleDecoder_Encoder() {
@@ -685,4 +725,21 @@ func ExampleDecoder_Encoder_roundTrip() {
 	back, _ := dec.One(s)
 	fmt.Printf("%q -> %+v\n", s, back)
 	// Output: "Alice is 30" -> {Name:Alice Age:30}
+}
+
+func ExampleDecoder_MustEncoder() {
+	type Person struct {
+		Name string `regex:"name"`
+		Age  int    `regex:"age"`
+	}
+	// The blessed usage is package-level, so an invertibility problem fails at
+	// startup alongside MustCompile's pattern validation:
+	//
+	//	var personDecoder = regextra.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+	//	var personEncoder = personDecoder.MustEncoder()
+	dec := rx.MustCompile[Person](`(?P<name>\S+) is (?P<age>\d+)`)
+	enc := dec.MustEncoder()
+	s, _ := enc.Encode(Person{Name: "Alice", Age: 30})
+	fmt.Println(s)
+	// Output: Alice is 30
 }

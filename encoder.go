@@ -236,6 +236,20 @@ func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 	}, nil
 }
 
+// MustEncoder is like [Decoder.Encoder] but panics on error. Intended for
+// package-level vars where startup-time failure is the right behavior,
+// mirroring [MustCompile]:
+//
+//	var personDecoder = regextra.MustCompile[Person](`(?P<name>\w+) is (?P<age>\d+)`)
+//	var personEncoder = personDecoder.MustEncoder()
+func (d *Decoder[T]) MustEncoder() *Encoder[T] {
+	e, err := d.Encoder()
+	if err != nil {
+		panic(err)
+	}
+	return e
+}
+
 // encodeSegmentBuilder accumulates the derived encode plan, coalescing adjacent
 // literal runs into one segment (an anchor dropped between two literals, for
 // example, leaves them contiguous) so Encode walks the minimal segment list.
