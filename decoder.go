@@ -360,7 +360,7 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 // remaining matches.
 //
 // On a fully-consumed input, throughput is roughly comparable to
-// [Decoder.All] / [UnmarshalAll] — Iter's advantage is streaming (no
+// [UnmarshalAll] — Iter's advantage is streaming (no
 // materialized result slice, so lower peak memory on large inputs, plus the
 // lazy decode above), not raw speed.
 //

@@ -7,8 +7,9 @@
 Extensions to Go's regexp package for easier handling of named capture groups:
 name-based extraction, `json.Unmarshal`-style decoding into structs, a typed
 compiled decoder for hot paths, and a derived encoder that renders structs back
-into strings. No wrapper types — every function works directly with
-`*regexp.Regexp` — and no dependencies outside the standard library.
+into strings. The simple functions work directly with `*regexp.Regexp` — no
+wrapper types required — and there are no dependencies outside the standard
+library.
 
 The full per-symbol reference lives in the
 [package documentation on pkg.go.dev](https://pkg.go.dev/github.com/jecoms/regextra/v2);
@@ -78,7 +79,8 @@ func main() {
 | [`UnmarshalAll`](https://pkg.go.dev/github.com/jecoms/regextra/v2#UnmarshalAll) | Decode every match into a slice of structs |
 | [`Compile`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Compile) / [`MustCompile`](https://pkg.go.dev/github.com/jecoms/regextra/v2#MustCompile) | Build a [`Decoder[T]`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder) with strict upfront validation — compile once, decode many times |
 | [`Decoder.One`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.One) / [`Decoder.All`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.All) / [`Decoder.Iter`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.Iter) | Typed decode of the first match / every match / a lazy match stream |
-| [`Decoder.Encoder`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.Encoder) | Derive an [`Encoder[T]`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Encoder) — the typed inverse that renders a struct back into a string by inverting the decoder's own pattern |
+| [`Decoder.Pattern`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.Pattern) / [`Decoder.Regexp`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.Regexp) | Accessors for the decoder's pattern source and its compiled `*regexp.Regexp` |
+| [`Decoder.Encoder`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Decoder.Encoder) / [`Encoder.Encode`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Encoder.Encode) | Derive an [`Encoder[T]`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Encoder) — the typed inverse built by inverting the decoder's own pattern — and render a struct back into a string |
 | [`RegexUnmarshaler`](https://pkg.go.dev/github.com/jecoms/regextra/v2#RegexUnmarshaler) / [`RegexMarshaler`](https://pkg.go.dev/github.com/jecoms/regextra/v2#RegexMarshaler) | Extension points for caller-defined types on the decode / encode side |
 | [`ErrNoMatch`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ErrNoMatch), [`ErrInvalidPattern`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ErrInvalidPattern), [`ErrInvalidStruct`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ErrInvalidStruct), [`ErrNotInvertible`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ErrNotInvertible) | Sentinel errors — compare with `errors.Is` |
 | [`DecodeError`](https://pkg.go.dev/github.com/jecoms/regextra/v2#DecodeError), [`EncodeError`](https://pkg.go.dev/github.com/jecoms/regextra/v2#EncodeError), [`RequiredGroupError`](https://pkg.go.dev/github.com/jecoms/regextra/v2#RequiredGroupError), [`MissingNamedGroupsError`](https://pkg.go.dev/github.com/jecoms/regextra/v2#MissingNamedGroupsError) | Typed errors — recover with `errors.As` |
