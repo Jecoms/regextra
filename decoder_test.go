@@ -635,8 +635,9 @@ func ExampleDecoder_One_scanner() {
 	}
 	dec := rx.MustCompile[Entry](`level=(?P<level>\w+) msg="(?P<msg>[^"]*)"`)
 
-	// Streaming decode from an io.Reader: Go's regexp has no streaming find,
-	// so scan the stream line by line and decode each line with Decoder.One.
+	// Streaming decode from an io.Reader: Go's regexp has no streaming
+	// submatch extraction (its reader-based forms return indices only), so
+	// scan the stream line by line and decode each line with Decoder.One.
 	// A file or network stream slots in wherever the strings.Reader is.
 	stream := strings.NewReader(`level=info msg="listening"
 -- not a log line --

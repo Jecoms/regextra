@@ -74,11 +74,15 @@ named groups in place, keyed by group name. Reach for stdlib when the
 template is the output shape; reach for [Replace] when the input is the
 output shape and only the captured spans change.
 
-Streaming input (io.Reader, log tailing). Go's regexp has no streaming find,
-so any streaming API would be a line scanner in disguise. Compose one
-directly: read lines with a [bufio.Scanner] and decode each with
-[Decoder.One], skipping non-matches via [ErrNoMatch] — see the
-ExampleDecoder_One_scanner example.
+Streaming input (io.Reader, log tailing). Go's regexp has no streaming
+submatch extraction — its reader-based forms ([regexp.Regexp.MatchReader],
+[regexp.Regexp.FindReaderSubmatchIndex]) return indices only, not the
+matched text — so any streaming decode API here would be a line scanner in
+disguise. Compose one directly: read lines with a [bufio.Scanner] and decode
+each with [Decoder.One], skipping non-matches via [ErrNoMatch] — see the
+ExampleDecoder_One_scanner example. This streams the input; [Decoder.Iter]
+is the other sense of streaming, lazily yielding results from a string
+already in memory.
 
 # Performance
 
