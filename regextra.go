@@ -60,6 +60,30 @@ By use case:
   - Plug in caller-defined types in the encode path: [RegexMarshaler]
   - Compare against the no-match sentinel: [ErrNoMatch]
 
+# When the standard library already does it
+
+regextra composes with stdlib regexp rather than wrapping it, so two
+capabilities are deliberately not functions here:
+
+Template-style replacement ($name expansion). Building a new string from a
+replacement template with $name placeholders is [regexp.Regexp.Expand] /
+[regexp.Regexp.ExpandString], or [regexp.Regexp.ReplaceAllString] with $name
+references in the replacement. regextra's [Replace] family is the other
+direction: it keeps the target string and substitutes the matched spans of
+named groups in place, keyed by group name. Reach for stdlib when the
+template is the output shape; reach for [Replace] when the input is the
+output shape and only the captured spans change.
+
+Streaming input (io.Reader, log tailing). Go's regexp has no streaming
+submatch extraction — its reader-based forms ([regexp.Regexp.MatchReader],
+[regexp.Regexp.FindReaderSubmatchIndex]) return indices only, not the
+matched text — so any streaming decode API here would be a line scanner in
+disguise. Compose one directly: read lines with a [bufio.Scanner] and decode
+each with [Decoder.One], skipping non-matches via [ErrNoMatch] — see the
+ExampleDecoder_One_scanner example. This streams the input; [Decoder.Iter]
+is the other sense of streaming, lazily yielding results from a string
+already in memory.
+
 # Performance
 
 Every decode path caches its field-mapping reflect work. [Unmarshal] /
@@ -567,6 +591,11 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 //
 // On no match, returns target unchanged. See the package doc's
 // "No-match behavior" section for the full cross-API contract.
+//
+// For template-style replacement — building a new string from a template with
+// $name placeholders, rather than substituting group spans in place — use the
+// standard library's [regexp.Regexp.Expand] or [regexp.Regexp.ReplaceAllString];
+// see the package doc's "When the standard library already does it" section.
 //
 // Example:
 //
