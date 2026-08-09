@@ -502,11 +502,6 @@ func FuzzNamedGroups(f *testing.F) {
 	})
 }
 
-// FuzzUnmarshalInt drives the int-conversion branch of setFieldValue with
-// arbitrary group values. Pattern is one named group; target is constructed
-// from the fuzz input. Failure modes: panic, or success on a value that
-// strconv.ParseInt(value, 10, 64) would reject.
-
 // Regression tests for https://github.com/Jecoms/regextra/issues/105:
 // patterns that reuse a group name (legal in Go's regexp, e.g. across
 // alternation branches) were mishandled in both decode paths — the map

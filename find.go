@@ -229,7 +229,7 @@ func NamedGroupsPerMatchSeq(re *regexp.Regexp, target string) iter.Seq[map[strin
 //     participates elsewhere still sets the key, so omitting never drops a real
 //     value. The typed [Unmarshal] / [UnmarshalAll] path no longer routes
 //     through this map — it shares the [Decoder]'s index-based decode plan (see
-//     buildDecodePlan / runDecodePlan in decoder.go) — but the flag is kept for
+//     buildDecodePlan / runDecodePlan in plan.go) — but the flag is kept for
 //     the omit-vs-empty distinction.
 func namedGroupValues(re *regexp.Regexp, target string, m []int, includeNonParticipating bool) map[string]string {
 	names := re.SubexpNames()

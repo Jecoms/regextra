@@ -122,8 +122,6 @@ func TestValidateMissingNamedGroupsError(t *testing.T) {
 	})
 }
 
-// status is a custom type whose pointer satisfies RegexUnmarshaler;
-// used by TestUnmarshalRegexUnmarshaler.
 func ExampleValidate() {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 	if err := rx.Validate(re, "name", "age", "ssn"); err != nil {

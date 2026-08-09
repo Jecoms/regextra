@@ -508,7 +508,7 @@ func resolveEncodeField(rt reflect.Type, name string) ([]int, map[string]string,
 		// exactly (subexpIndexes). Folding a tag here would bind a group that the
 		// decoder maps back to nothing, silently corrupting the round-trip — e.g. a
 		// field `regex:"ID,default=x"` against a `(?P<id>…)` group would Encode via
-		// the fold yet Decode to the default. See buildDecodePlan in decoder.go.
+		// the fold yet Decode to the default. See buildDecodePlan in plan.go.
 		for _, lv := range levels {
 			for i := range lv.typ.NumField() {
 				sf := lv.typ.Field(i)
