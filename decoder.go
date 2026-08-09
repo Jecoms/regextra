@@ -359,6 +359,11 @@ func (d *Decoder[T]) All(target string) ([]T, error) {
 // lazy, so breaking early avoids the per-match reflect work for the
 // remaining matches.
 //
+// On a fully-consumed input, throughput is roughly comparable to
+// [UnmarshalAll] — Iter's advantage is streaming (no
+// materialized result slice, so lower peak memory on large inputs, plus the
+// lazy decode above), not raw speed.
+//
 // For a slice of all results with a single error, prefer [Decoder.All].
 // For a single match with a sentinel ErrNoMatch, prefer [Decoder.One].
 func (d *Decoder[T]) Iter(target string) iter.Seq2[T, error] {

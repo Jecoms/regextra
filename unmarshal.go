@@ -194,7 +194,14 @@ func getDecodePlan(rt reflect.Type, re *regexp.Regexp) ([]fieldDecoder, error) {
 //   - Supports type conversion for string, bool, all int/uint widths,
 //     float32/float64, time.Time, time.Duration, and pointers (any depth)
 //     to any of these; types implementing [RegexUnmarshaler] or
-//     encoding.TextUnmarshaler convert themselves
+//     encoding.TextUnmarshaler convert themselves (see [RegexUnmarshaler]
+//     for the full conversion precedence)
+//   - A nil pointer field is allocated; a non-nil pointer is reused, its
+//     pointee overwritten
+//   - A time.Time field tries these layouts in order: RFC3339Nano, RFC3339,
+//     DateTime ("2006-01-02 15:04:05"), DateOnly ("2006-01-02"), TimeOnly
+//     ("15:04:05") — unless a `layout=` tag option pins one exclusively;
+//     time.Duration is parsed with [time.ParseDuration]
 //   - Unexported fields are ignored
 //   - A group that did not participate in the match (e.g. an optional group),
 //     or that matched an empty span, leaves the field unchanged — unless the
@@ -461,6 +468,20 @@ func resolveGroupValue(value string, found bool, opts map[string]string) (string
 //
 // This is the extension point for caller-defined types that the built-in
 // type switch can't handle (URLs, enums, big numbers, IP addresses, etc.).
+//
+// Conversion precedence: for each field, the decode path tries in order
+//
+//  1. RegexUnmarshaler — the package-specific hook always wins;
+//  2. the time.Time / time.Duration special-cases, so the multi-layout
+//     fallback and the `layout=` tag option are preserved (time.Time
+//     implements [encoding.TextUnmarshaler], but its UnmarshalText accepts
+//     only RFC3339, so it is deliberately not routed through step 3);
+//  3. [encoding.TextUnmarshaler] — for any other type that implements it
+//     (e.g. netip.Addr, math/big.Int, log/slog.Level);
+//  4. the built-in string/int/uint/float/bool conversion.
+//
+// A type implementing both RegexUnmarshaler and [encoding.TextUnmarshaler]
+// therefore dispatches on UnmarshalRegex.
 //
 // Example:
 //

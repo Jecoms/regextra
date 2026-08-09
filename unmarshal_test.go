@@ -1615,7 +1615,8 @@ func TestUnmarshal_emptyTagStillFallsBackToFieldName(t *testing.T) {
 // Only the bare `-` excludes: a leading `-` followed by options parses `-` as
 // the group name, which matches no group, so the field falls through to its
 // `default`. The documented boundary in three doc locations (parseFieldTag
-// godoc, README, CHANGELOG), guarded here so it can't silently regress.
+// godoc, package-doc Tag grammar, CHANGELOG), guarded here so it can't
+// silently regress.
 func TestUnmarshal_dashWithOptionsIsNotExcluded(t *testing.T) {
 	type Person struct {
 		Name string `regex:"name"`
