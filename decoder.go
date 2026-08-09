@@ -86,6 +86,11 @@ type fieldDecoder struct {
 	// an empty span with no default) fails decode with a *RequiredGroupError
 	// instead of being skipped.
 	required bool
+	// conv converts one matched (or defaulted) string into the field, resolved
+	// once at plan-build time by resolveConverter so the per-decode call skips
+	// setFieldValue's type-dispatch probes. Interface-typed fields get a
+	// converter that defers to setFieldValue, preserving dynamic dispatch.
+	conv func(field reflect.Value, value string) error
 }
 
 // Compile parses pattern and validates T's struct tags against it.
@@ -169,8 +174,9 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 // The Unmarshal path passes strict=false and tolerates all three rather than
 // rejecting them — a missing group with no default skips the field, an
 // unconvertible default surfaces only if that field is actually reached at
-// decode time, and a stray `layout=` is ignored on non-time fields by
-// setFieldValue. This preserves Unmarshal's historical best-effort behavior, so
+// decode time, and a stray `layout=` is ignored on non-time fields (their
+// converters never consult it). This preserves Unmarshal's historical
+// best-effort behavior, so
 // buildDecodePlan never returns a non-nil error when strict=false.
 //
 // An embedded struct (or *struct) field tagged `regex:",inline"` is promoted:
@@ -289,13 +295,19 @@ func collectDecodeFields(rt reflect.Type, re *regexp.Regexp, strict bool, path [
 			}
 		}
 
+		// Resolve the field's converter once, at plan-build time. Entries later
+		// dropped by promotion shadowing resolve one too — wasted work, but
+		// only on the cold (cached-per-pattern-and-type) plan-build path.
+		conv := resolveConverter(sf.Type, opts)
+
 		if strict {
 			// Validate `default=` eagerly: try to assign it to a fresh field
 			// and surface any conversion error at compile time, not at first
-			// request.
+			// request. Reusing the resolved converter keeps the probe's errors
+			// identical to what decode time would produce.
 			if def, ok := opts["default"]; ok {
 				probe := reflect.New(sf.Type).Elem()
-				if err := setFieldValue(probe, def, opts); err != nil {
+				if err := conv(probe, def); err != nil {
 					return fmt.Errorf("%w: field %s default %q does not convert to %v: %w", ErrInvalidStruct, sf.Name, def, sf.Type, err)
 				}
 			}
@@ -326,6 +338,7 @@ func collectDecodeFields(rt reflect.Type, re *regexp.Regexp, strict bool, path [
 				groupIndexes: groupIdxs,
 				opts:         opts,
 				required:     required,
+				conv:         conv,
 			},
 			group:  groupName,
 			tagged: tagged,
@@ -722,7 +735,7 @@ func runDecodePlan(re *regexp.Regexp, fields []fieldDecoder, rv reflect.Value, t
 			continue
 		}
 		field := walkFieldPath(rv, fd.fieldIndex)
-		if err := setFieldValue(field, value, fd.opts); err != nil {
+		if err := fd.conv(field, value); err != nil {
 			sf := rv.Type().FieldByIndex(fd.fieldIndex)
 			return &DecodeError{
 				Field: sf.Name,

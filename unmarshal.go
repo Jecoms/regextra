@@ -536,9 +536,183 @@ var regexUnmarshalerType = reflect.TypeOf((*RegexUnmarshaler)(nil)).Elem()
 // it, so honoring it lets those drop into a struct field with no wrapper.
 var textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 
+// resolveConverter resolves, at plan-build time, the conversion func a field
+// of type t executes per decoded value. It mirrors setFieldValue's dispatch
+// precedence exactly — RegexUnmarshaler, then the time.Time/time.Duration
+// special-cases, then encoding.TextUnmarshaler, then the built-in kind switch —
+// but hoists the type probes out of the per-decode path: for a concrete field
+// type every probe result is a pure function of t (and the parsed tag opts), so
+// the plan can pay them once and the hot path collapses to one indirect call.
+// See setFieldValue for the semantics each branch implements; error text is
+// built from the same format strings so the two paths stay byte-identical.
+//
+// Two deliberate exceptions keep behavior unchanged:
+//   - Interface-kind fields dispatch on the *dynamic* value stored in the field
+//     at decode time, which no plan-time probe of t can know. Those fields get
+//     a converter that defers to setFieldValue per call, preserving the
+//     dynamic path.
+//   - Unsupported types (nested struct, slice, map, ...) return their
+//     "unsupported field type" error from the converter at decode time, not as
+//     a plan-build failure — Compile does not reject such fields today (they
+//     only error when a match actually reaches them), and the lenient
+//     Unmarshal path must stay lenient.
+//
+// The returned converter assumes field is addressable and of exactly type t —
+// true everywhere the plan runs (walkFieldPath resolves fields of an
+// addressable struct; the strict default= probe uses reflect.New(t).Elem()).
+func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect.Value, value string) error {
+	// Interface-typed fields: dynamic dispatch preserved (see doc above).
+	if t.Kind() == reflect.Interface {
+		return func(field reflect.Value, value string) error {
+			return setFieldValue(field, value, opts)
+		}
+	}
+
+	// Pointer fields: allocate the pointee if nil, then either the pointer
+	// type's own RegexUnmarshaler or the pointee's converter, resolved here
+	// once per indirection level (`**Foo` recurses).
+	if t.Kind() == reflect.Ptr {
+		if t.Implements(regexUnmarshalerType) {
+			return func(field reflect.Value, value string) error {
+				if field.IsNil() {
+					field.Set(reflect.New(field.Type().Elem()))
+				}
+				return field.Interface().(RegexUnmarshaler).UnmarshalRegex(value)
+			}
+		}
+		elemConv := resolveConverter(t.Elem(), opts)
+		return func(field reflect.Value, value string) error {
+			if field.IsNil() {
+				field.Set(reflect.New(field.Type().Elem()))
+			}
+			return elemConv(field.Elem(), value)
+		}
+	}
+
+	// RegexUnmarshaler first — caller-defined conversions beat everything.
+	// Probing reflect.PointerTo(t) covers value-receiver implementations too
+	// (*T's method set includes T's), matching setFieldValue's Addr dispatch.
+	if reflect.PointerTo(t).Implements(regexUnmarshalerType) {
+		return func(field reflect.Value, value string) error {
+			return field.Addr().Interface().(RegexUnmarshaler).UnmarshalRegex(value)
+		}
+	}
+
+	// time.Time and time.Duration special-cases, ahead of TextUnmarshaler for
+	// the reason documented on setFieldValue step 3. The `layout=` option is
+	// resolved here so per-decode calls skip the opts lookup entirely.
+	switch t {
+	case timeTimeType:
+		if layout := opts["layout"]; layout != "" {
+			return func(field reflect.Value, value string) error {
+				tv, err := time.Parse(layout, value)
+				if err != nil {
+					return fmt.Errorf("cannot convert %q to time.Time using layout %q: %w", value, layout, err)
+				}
+				field.Set(reflect.ValueOf(tv))
+				return nil
+			}
+		}
+		return func(field reflect.Value, value string) error {
+			tv, err := parseTime(value)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to time.Time: %w", value, err)
+			}
+			field.Set(reflect.ValueOf(tv))
+			return nil
+		}
+	case timeDurationType:
+		return func(field reflect.Value, value string) error {
+			d, err := time.ParseDuration(value)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to time.Duration: %w", value, err)
+			}
+			field.Set(reflect.ValueOf(d))
+			return nil
+		}
+	}
+
+	// encoding.TextUnmarshaler fallback (below RegexUnmarshaler and the time
+	// special-cases, as in setFieldValue).
+	if reflect.PointerTo(t).Implements(textUnmarshalerType) {
+		return func(field reflect.Value, value string) error {
+			if err := field.Addr().Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value)); err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			return nil
+		}
+	}
+
+	// Built-in kind switch. Bits() is resolved here so per-decode calls parse
+	// straight at the field's width.
+	switch t.Kind() {
+	case reflect.String:
+		return func(field reflect.Value, value string) error {
+			field.SetString(value)
+			return nil
+		}
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bits := t.Bits()
+		return func(field reflect.Value, value string) error {
+			intVal, err := strconv.ParseInt(value, 10, bits)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			field.SetInt(intVal)
+			return nil
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		bits := t.Bits()
+		return func(field reflect.Value, value string) error {
+			uintVal, err := strconv.ParseUint(value, 10, bits)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			field.SetUint(uintVal)
+			return nil
+		}
+
+	case reflect.Float32, reflect.Float64:
+		bits := t.Bits()
+		return func(field reflect.Value, value string) error {
+			floatVal, err := strconv.ParseFloat(value, bits)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+			}
+			field.SetFloat(floatVal)
+			return nil
+		}
+
+	case reflect.Bool:
+		return func(field reflect.Value, value string) error {
+			boolVal, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("cannot convert %q to bool: %w", value, err)
+			}
+			field.SetBool(boolVal)
+			return nil
+		}
+
+	default:
+		kind := t.Kind()
+		return func(reflect.Value, string) error {
+			return fmt.Errorf("unsupported field type: %s", kind)
+		}
+	}
+}
+
 // setFieldValue sets the field value with appropriate type conversion.
 // `opts` carries per-field tag options parsed from `regex:"name,key=value,..."`.
 // Currently consulted: `layout` (for time.Time fields). Pass nil for no opts.
+//
+// This is the dynamic-dispatch implementation: the decode plan's per-field
+// converters (resolveConverter) hoist this function's type probes to
+// plan-build time and are what runDecodePlan executes; setFieldValue remains
+// as the per-call path behind interface-typed fields' converters, where
+// dispatch depends on the dynamic value. The two must stay in lockstep —
+// same precedence, same error text.
 func setFieldValue(field reflect.Value, value string, opts map[string]string) error {
 	// 0. Pointer fields: allocate the pointee if nil, then either dispatch
 	//    on the pointer's own RegexUnmarshaler (the common case for
