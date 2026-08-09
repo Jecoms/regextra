@@ -47,6 +47,7 @@ By use case:
   - Substitute named-group spans by name: [Replace]
   - Substitute named-group spans in the first match only: [ReplaceFirst]
   - Substitute named-group spans with a callback over the matched value: [ReplaceFunc]
+  - Substitute named-group spans with a callback, first match only: [ReplaceFuncFirst]
   - Assert at startup that required groups are declared: [Validate]
   - Decode one match into a struct: [Unmarshal]
   - Decode all matches into a slice of structs: [UnmarshalAll]
@@ -94,6 +95,8 @@ the no-match form that lets the caller continue without a special-case branch.
 	Replace                                   target returned unchanged
 	ReplaceFirst                              target returned unchanged
 	ReplaceFunc                               target returned unchanged (fn
+	                                          never called)
+	ReplaceFuncFirst                          target returned unchanged (fn
 	                                          never called)
 	Validate                                  unrelated — checks declarations,
 	                                          not matches against a target
@@ -647,15 +650,46 @@ func ReplaceFunc(re *regexp.Regexp, target string, fn func(group, match string) 
 	})
 }
 
+// ReplaceFuncFirst is like [ReplaceFunc] but substitutes named-group spans only
+// within the first match of re in target; every later match, and all text
+// outside the first match, passes through byte-for-byte unchanged. Use it when
+// only the leading occurrence should be rewritten from its matched value —
+// e.g. masking the first card number on a line while leaving the rest intact.
+//
+// Within that first match it follows [ReplaceFunc]'s rules exactly: fn runs
+// once per substituted named span, left to right; to leave a group unchanged,
+// return its match verbatim; on overlap (nesting) the outermost span
+// encountered first wins, and fn is not called for inner groups inside an
+// already-substituted span. Passing a nil fn is a programmer error — it panics
+// on the first match, mirroring the standard library's
+// [regexp.Regexp.ReplaceAllStringFunc].
+//
+// On no match, returns target unchanged and never calls fn. See the package
+// doc's "No-match behavior" section for the full cross-API contract.
+//
+// Example — mask only the first captured card number:
+//
+//	re := regexp.MustCompile(`(?P<card>\d{12,19})`)
+//	out := regextra.ReplaceFuncFirst(re, "4111111111111111 then 4242424242424242", func(group, match string) string {
+//	    return strings.Repeat("*", len(match)-4) + match[len(match)-4:]
+//	})
+//	// out = "************1111 then 4242424242424242"
+func ReplaceFuncFirst(re *regexp.Regexp, target string, fn func(group, match string) string) string {
+	return replaceNamed(re, target, 1, func(name, matched string) (string, bool) {
+		return fn(name, matched), true
+	})
+}
+
 // replaceNamed is the shared substitution engine behind [Replace],
-// [ReplaceFirst] and [ReplaceFunc]. It walks up to limit matches of re over
-// target and, for each participating named group, asks replFor for the
-// replacement; replFor reports false to pass the group's matched text through
-// unchanged. limit is passed straight to FindAllStringSubmatchIndex: -1
-// processes every match ([Replace]/[ReplaceFunc]), 1 processes only the first
-// ([ReplaceFirst]). Text after the last processed match is copied through
-// verbatim by the trailing cursor write, so a capped limit leaves the remainder
-// untouched for free.
+// [ReplaceFirst], [ReplaceFunc] and [ReplaceFuncFirst]. It walks up to limit
+// matches of re over target and, for each participating named group, asks
+// replFor for the replacement; replFor reports false to pass the group's
+// matched text through unchanged. limit is passed straight to
+// FindAllStringSubmatchIndex: -1 processes every match
+// ([Replace]/[ReplaceFunc]), 1 processes only the first
+// ([ReplaceFirst]/[ReplaceFuncFirst]). Text after the last processed match is
+// copied through verbatim by the trailing cursor write, so a capped limit
+// leaves the remainder untouched for free.
 //
 // replFor is resolved at apply time and only for spans that actually win the
 // overlap rule, so a group skipped by an enclosing outermost span never reaches
