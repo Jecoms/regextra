@@ -78,3 +78,12 @@ func BenchmarkEncode(b *testing.B) {
 	benchCase(b, "withTime", func() { sinkStr, sinkErr = benchEncTimeEncoder.Encode(benchEncTimeVal) })
 	benchCase(b, "manyFields", func() { sinkStr, sinkErr = benchEncWideEncoder.Encode(benchEncWideVal) })
 }
+
+// EncodeStrict adds one anchored regexp match per field segment on top of
+// Encode's walk; the same fixtures make the per-check overhead directly
+// comparable against BenchmarkEncode.
+func BenchmarkEncodeStrict(b *testing.B) {
+	benchCase(b, "simple", func() { sinkStr, sinkErr = benchEncSimpleEncoder.EncodeStrict(benchEncSimpleVal) })
+	benchCase(b, "withTime", func() { sinkStr, sinkErr = benchEncTimeEncoder.EncodeStrict(benchEncTimeVal) })
+	benchCase(b, "manyFields", func() { sinkStr, sinkErr = benchEncWideEncoder.EncodeStrict(benchEncWideVal) })
+}

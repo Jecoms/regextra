@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"regexp/syntax"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrNotInvertible categorizes a [Decoder.Encoder] failure where the decoder's
@@ -24,6 +26,15 @@ import (
 // fills the group, so the sub-pattern describing what the group matches is
 // irrelevant to encoding.
 var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
+
+// ErrValueMismatch categorizes an [Encoder.EncodeStrict] failure where an
+// encoded field value does not re-match the sub-pattern of the capture group it
+// fills, so the output could decode to something other than the input. Callers
+// can branch on the failure kind with errors.Is rather than parsing the message;
+// the surrounding [EncodeError] (recover with errors.As) names the field and
+// group. Like [ErrNoMatch] and [ErrNotInvertible], it carries the bare
+// `regextra:` prefix reserved for package-level sentinels.
+var ErrValueMismatch = errors.New("regextra: encoded value does not match group sub-pattern")
 
 // Encoder is the typed inverse of [Decoder]: it renders a value of T back into a
 // string so that an Encode followed by an [Unmarshal] / [Decoder.One] on the same
@@ -43,8 +54,9 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 //     resolves to a struct field with the same rules [Decoder] uses — the field's
 //     `regex:"name"` tag matched exactly, otherwise the field's own name matched
 //     exactly then case-insensitively via Unicode simple case folding; a `regex:"-"` field
-//     is excluded. The group's sub-pattern is discarded — the field's value fills
-//     the span.
+//     is excluded. The field's value fills the span; the group's sub-pattern is
+//     not part of the emitted text but is retained (compiled as an anchored
+//     matcher) for [Encoder.EncodeStrict]'s re-match check.
 //   - Anchors and zero-width assertions (`^`, `$`, `\A`, `\z`, `\b`, …) match no
 //     text and are dropped.
 //   - An unnamed group whose body is pure literal text is treated as that literal.
@@ -76,8 +88,11 @@ var ErrNotInvertible = errors.New("regextra: pattern is not invertible")
 // sub-patterns in the decode regex (a captured word wants `\S+`, not `.*`).
 // Values that collide with a surrounding literal delimiter, or two adjacent
 // captures with no literal between them, have no unambiguous decode boundary and
-// are out of scope. (A future option is to re-match each encoded value against
-// its group's sub-pattern at Encode time; that is deliberately not done here.)
+// are out of scope. [Encoder.EncodeStrict] verifies the per-group condition at
+// encode time — each encoded value is re-matched (fully anchored) against its
+// group's sub-pattern, and a miss fails with [ErrValueMismatch] — while the
+// delimiter-collision and adjacent-captures cases remain out of scope for it
+// too. [Encoder.Encode] performs no verification.
 //
 // Encoders are safe for concurrent use — no shared mutable state after
 // construction.
@@ -103,6 +118,30 @@ type encodeSegment struct {
 	// opts is the parsed tag options map for the field (e.g. {"layout": "..."}).
 	// Nil if the field has no options.
 	opts map[string]string
+	// subPattern is the source text of the group's sub-pattern (re-rendered from
+	// its parsed AST), retained for the EncodeStrict mismatch message. Valid only
+	// when field is true.
+	subPattern string
+	// strictRE is subPattern compiled as the anchored matcher `\A(?:sub)\z`,
+	// consulted only by EncodeStrict to verify the encoded value re-matches the
+	// group it fills. When the sub-pattern contains a zero-width assertion,
+	// compileStrictContext rebuilds it with one rune of adjacent literal context
+	// baked in on each side (`\A<prev>(?:sub)<next>\z`) so edge assertions
+	// evaluate against the characters the emitted string actually places there.
+	// Compiled eagerly at derivation so Encoders keep no shared mutable state
+	// after construction. Valid only when field is true.
+	strictRE *regexp.Regexp
+	// strictPrefix and strictSuffix are the context runes baked into strictRE
+	// (empty when strictRE is the bare anchored matcher). EncodeStrict matches
+	// strictRE against strictPrefix+value+strictSuffix. Valid only when field is
+	// true.
+	strictPrefix string
+	strictSuffix string
+	// ctxSensitive records whether subPattern contains a zero-width assertion
+	// (`\b`, `\B`, `^`, `$`, `\A`, `\z`) whose truth at the value's edges depends
+	// on adjacent characters. Consulted only by compileStrictContext during
+	// derivation. Valid only when field is true.
+	ctxSensitive bool
 }
 
 // RegexMarshaler is the interface implemented by types that render themselves
@@ -147,8 +186,10 @@ var (
 
 // EncodeError reports the failure to render a struct field into its capture-group
 // slot. It is the encode-side mirror of [DecodeError], returned (wrapped with the
-// calling entrypoint's prefix) by [Encoder.Encode] when a field's value cannot be
-// converted to a string. Recover it with [errors.As] to branch on the failure
+// calling entrypoint's prefix) by [Encoder.Encode] and [Encoder.EncodeStrict]
+// when a field's value cannot be converted to a string, and by EncodeStrict
+// additionally when an encoded value fails its group's re-match check (Err wraps
+// [ErrValueMismatch]). Recover it with [errors.As] to branch on the failure
 // without parsing message text:
 //
 //	var ee *regextra.EncodeError
@@ -157,8 +198,9 @@ var (
 //	}
 //
 // Err holds the underlying cause (e.g. an error from a custom [RegexMarshaler]
-// or [encoding.TextMarshaler], or a nil-pointer or nil-interface field) and is
-// reachable via [errors.Is]/[errors.As] through Unwrap.
+// or [encoding.TextMarshaler], a nil-pointer or nil-interface field, or
+// EncodeStrict's [ErrValueMismatch]) and is reachable via
+// [errors.Is]/[errors.As] through Unwrap.
 type EncodeError struct {
 	// Field is the source struct field name.
 	Field string
@@ -230,11 +272,76 @@ func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 		return nil, err
 	}
 	sb.flushLiteral()
+	if err := compileStrictContext(sb.segments); err != nil {
+		return nil, err
+	}
 
 	return &Encoder[T]{
 		rtype:    rt,
 		segments: sb.segments,
 	}, nil
+}
+
+// compileStrictContext rebuilds the strict matcher of every field segment whose
+// sub-pattern contains a zero-width assertion, baking one rune of adjacent
+// literal context into each side (`\A<prev>(?:sub)<next>\z`) so assertions at
+// the value's edges — `\b`, `\B`, a multiline `^`/`$`, `\A`, `\z` — evaluate
+// against the characters the emitted string actually places there, not against
+// the bare value in isolation. Every RE2 zero-width assertion examines at most
+// one adjacent rune, so one rune of context is exact; and because the quoted
+// context runes are fixed-length between the `\A`/`\z` anchors, the sub-pattern
+// is still forced to match exactly the value span. A side with no adjacent
+// literal contributes no context: at the plan's boundary the bare anchored
+// matcher is already the true context, and a side adjoining another field
+// segment (adjacent captures, no literal between) is unknowable — that
+// ambiguity is already out of scope for the round-trip contract.
+func compileStrictContext(segs []encodeSegment) error {
+	for i := range segs {
+		if !segs[i].field || !segs[i].ctxSensitive {
+			continue
+		}
+		var prev, next string
+		if i > 0 && !segs[i-1].field {
+			r, _ := utf8.DecodeLastRuneInString(segs[i-1].literal)
+			prev = string(r)
+		}
+		if i+1 < len(segs) && !segs[i+1].field {
+			r, _ := utf8.DecodeRuneInString(segs[i+1].literal)
+			next = string(r)
+		}
+		if prev == "" && next == "" {
+			continue
+		}
+		re, err := regexp.Compile(`\A` + regexp.QuoteMeta(prev) + `(?:` + segs[i].subPattern + `)` + regexp.QuoteMeta(next) + `\z`)
+		if err != nil {
+			// Unreachable in practice — the bare form of the same sub-pattern
+			// already compiled in walkCapture — but surfaced defensively rather
+			// than panicked, mirroring that branch.
+			return fmt.Errorf("%w: %w", ErrInvalidPattern, err)
+		}
+		segs[i].strictRE = re
+		segs[i].strictPrefix = prev
+		segs[i].strictSuffix = next
+	}
+	return nil
+}
+
+// containsZeroWidthAssertion reports whether re's subtree contains a zero-width
+// assertion (`^`, `$`, `\A`, `\z`, `\b`, `\B`) — the constructs whose truth at
+// the edges of a matched span depends on the characters adjacent to it.
+func containsZeroWidthAssertion(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpBeginLine, syntax.OpEndLine,
+		syntax.OpBeginText, syntax.OpEndText,
+		syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return true
+	}
+	for _, sub := range re.Sub {
+		if containsZeroWidthAssertion(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // MustEncoder is like [Decoder.Encoder] but panics on error. Intended for
@@ -333,11 +440,25 @@ func walkCapture(rt reflect.Type, re *syntax.Regexp, sb *encodeSegmentBuilder) e
 	if err := validateEncodeField(rt.Field(idx)); err != nil {
 		return err
 	}
+	// Retain the group's sub-pattern as an anchored matcher for EncodeStrict.
+	// The AST re-render bakes flags per node (a `(?i)` literal renders as
+	// `(?i:…)`), so the standalone compile preserves the original semantics.
+	subPattern := re.Sub[0].String()
+	strictRE, err := regexp.Compile(`\A(?:` + subPattern + `)\z`)
+	if err != nil {
+		// Unreachable in practice — the sub-pattern re-renders from an AST that
+		// already parsed — but surfaced defensively rather than panicked,
+		// mirroring the parse branch in Encoder().
+		return fmt.Errorf("%w: %w", ErrInvalidPattern, err)
+	}
 	sb.addField(encodeSegment{
-		field:      true,
-		fieldIndex: idx,
-		name:       re.Name,
-		opts:       opts,
+		field:        true,
+		fieldIndex:   idx,
+		name:         re.Name,
+		opts:         opts,
+		subPattern:   subPattern,
+		strictRE:     strictRE,
+		ctxSensitive: containsZeroWidthAssertion(re.Sub[0]),
 	})
 	return nil
 }
@@ -501,7 +622,48 @@ func encodableType(t reflect.Type) bool {
 // substitution for an absent group, whereas Encode always emits the field's
 // actual value. `layout=` is honored so a time.Time re-parses under [Decoder]'s
 // exclusive-layout rule.
+//
+// Encode performs no verification that the output re-decodes; see
+// [Encoder.EncodeStrict] for the variant that re-matches each encoded value
+// against its group's sub-pattern.
 func (e *Encoder[T]) Encode(v T) (string, error) {
+	return e.encode(v, false, "regextra.Encoder.Encode")
+}
+
+// EncodeStrict is like [Encoder.Encode] but additionally verifies that each
+// encoded field value re-matches the sub-pattern of the capture group it fills —
+// the exact per-group condition the round-trip contract (see [Encoder]) places
+// on the caller. A value that would not re-match makes EncodeStrict return an
+// [EncodeError] (recover with [errors.As]) naming the field and group, whose
+// underlying cause wraps [ErrValueMismatch] and reports the rendered value and
+// the sub-pattern it failed.
+//
+// Each check is a full anchored match (`\A(?:sub)\z`), so a value that only
+// partially matches its sub-pattern fails. When the sub-pattern contains a
+// zero-width assertion (`\b`, `\B`, a multiline `^`/`$`, `\A`, `\z`), the
+// matcher additionally bakes in one rune of the adjacent literal segments so
+// assertions at the value's edges evaluate against the characters the emitted
+// string actually places there — `X(?P<v>\bfoo)` rejects v = "foo" (no word
+// boundary between `X` and `f` in the output) even though `foo` alone matches
+// `\bfoo` in isolation. An edge that adjoins another capture with no literal
+// between has no known neighbor; it is checked without context, consistent with
+// the adjacent-captures carve-out below. The cost is one regexp match per field
+// per call; [Encoder.Encode] skips the checks entirely.
+//
+// EncodeStrict verifies the contract's stated per-group condition, not a full
+// re-decode: values that collide with a surrounding literal delimiter, or two
+// adjacent captures with no literal between them, remain out of scope (e.g.
+// `(?P<a>.+)-(?P<b>.+)` with a = "x-y" passes per-group yet decodes
+// differently).
+func (e *Encoder[T]) EncodeStrict(v T) (string, error) {
+	return e.encode(v, true, "regextra.Encoder.EncodeStrict")
+}
+
+// encode is the shared core of [Encoder.Encode] and [Encoder.EncodeStrict]:
+// one plan walk, with the strict flag adding the anchored re-match check per
+// field segment. entrypoint is the `regextra.<Entrypoint>` prefix the caller
+// wraps its errors with.
+func (e *Encoder[T]) encode(v T, strict bool, entrypoint string) (string, error) {
 	// Reflect on v through its address so the value is addressable and fields
 	// with pointer-receiver marshalers dispatch via Addr() — the same reason
 	// setFieldValue relies on addressability on the decode side.
@@ -518,9 +680,21 @@ func (e *Encoder[T]) Encode(v T) (string, error) {
 		}
 		field := rv.Field(seg.fieldIndex)
 		s, err := encodeFieldValue(field, seg.opts)
+		if err == nil && strict {
+			// The probe carries the adjacent-context runes baked into strictRE
+			// (both empty for the common no-assertion sub-pattern, keeping the
+			// fast path concatenation-free).
+			probe := s
+			if seg.strictPrefix != "" || seg.strictSuffix != "" {
+				probe = seg.strictPrefix + s + seg.strictSuffix
+			}
+			if !seg.strictRE.MatchString(probe) {
+				err = fmt.Errorf("%w: value %q does not match sub-pattern `%s`", ErrValueMismatch, s, seg.subPattern)
+			}
+		}
 		if err != nil {
 			sf := e.rtype.Field(seg.fieldIndex)
-			return "", fmt.Errorf("regextra.Encoder.Encode: %w", &EncodeError{
+			return "", fmt.Errorf("%s: %w", entrypoint, &EncodeError{
 				Field: sf.Name,
 				Group: seg.name,
 				Type:  field.Type().String(),
