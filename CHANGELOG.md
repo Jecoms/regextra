@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **README restructured as a front page; the package documentation on pkg.go.dev is now the canonical per-symbol reference.** The README's per-function reference section was removed in favor of a one-row-per-symbol API table linking pkg.go.dev anchors; README-only contract text (conversion precedence, `time.Time` layout fallbacks, `Iter` streaming guidance) was ported into godoc before deletion. ([#194](https://github.com/Jecoms/regextra/issues/194), [#208](https://github.com/Jecoms/regextra/pull/208))
-
+- **ReDoS posture documented in SECURITY.md.** Added a "Scope of protection" subsection stating that all matching goes through Go's standard library `regexp` (RE2-compatible syntax, linear-time in the size of the input, no backtracking engine): hostile *target* input cannot trigger catastrophic backtracking, while hostile *patterns* stay out of scope — even at DoS-grade cost — as the caller's trust decision, same as with stdlib `regexp` itself. Behavior unchanged. ([#195](https://github.com/Jecoms/regextra/issues/195), [#209](https://github.com/Jecoms/regextra/pull/209))
 ## [2.0.1] - 2026-07-02
 
 ### Changed

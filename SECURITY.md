@@ -33,11 +33,19 @@ When the next major ships, the same rule applies on the new major line; the late
 
 ## Scope
 
-In scope:
+### Scope of protection
+
+All matching in `regextra` goes through Go's standard library [`regexp`](https://pkg.go.dev/regexp) package, which accepts [RE2 syntax](https://github.com/google/re2/wiki/Syntax) (except `\C`) and is guaranteed to run in time linear in the size of the input — there is no backtracking engine.
+
+- **Hostile target input: safe.** Matching untrusted *target* text cannot trigger catastrophic backtracking (ReDoS); for any fixed pattern, match time stays linear in the size of the input.
+- **Hostile patterns: out of scope — even when the cost is DoS-grade.** Pattern authors control compile and match cost — pattern size still drives memory and CPU, so "linear in the input" is not "immune to expensive patterns". Resource exhaustion driven by a hostile *pattern* is the caller's trust decision, not a `regextra` vulnerability; compiling patterns from untrusted input is the same trust decision as with stdlib `regexp` itself (see "Out of scope" below).
+
+### In scope
 - Bugs in `regextra` source code that lead to incorrect behavior in security-relevant contexts (e.g. regex/input handling that allows untrusted input to escape its expected shape).
 - Build-time supply-chain issues with the package's own CI / release workflows.
 
-Out of scope:
-- Vulnerabilities in caller code that uses `regextra` insecurely (passing untrusted regex patterns from user input is generally a bad idea regardless of which package you use).
-- Performance issues that aren't a denial-of-service risk.
+### Out of scope
+
+- Vulnerabilities in caller code that uses `regextra` insecurely — in particular, compiling untrusted regex *patterns* from user input (see "Scope of protection" above).
+- Performance issues that aren't a denial-of-service risk — and hostile-pattern cost even when it is (see "Scope of protection" above).
 - Issues in Go's standard library `regexp` package — report those upstream to https://github.com/golang/go.
