@@ -206,7 +206,8 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 //   - a mapped field's type cannot be encoded (see [Encoder] for the supported
 //     set)
 //
-// The latter two wrap [ErrInvalidStruct], mirroring [Compile]. Once Encoder
+// The latter two wrap [ErrInvalidStruct], mirroring [Compile].
+// [Decoder.MustEncoder] panics with the same wrapped error. Once Encoder
 // returns nil, the resulting Encoder is fully validated: the only errors
 // [Encoder.Encode] can then surface are runtime value failures (a custom
 // marshaler returning an error, or a nil pointer or nil interface field).
