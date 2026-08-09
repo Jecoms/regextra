@@ -28,8 +28,9 @@ func TestBenchmarkFixturesSane(t *testing.T) {
 	t.Run("Encoder", checkEncoderFixtures)
 }
 
-// Encoder: the three Encode fixtures render the expected strings, so the
-// BenchmarkEncode cases measure a real encode rather than an error path.
+// Encoder: the three Encode fixtures render the expected strings, and the same
+// fixtures pass the strict re-match check, so the BenchmarkEncode and
+// BenchmarkEncodeStrict cases measure a real encode rather than an error path.
 func checkEncoderFixtures(t *testing.T) {
 	if got, err := benchEncSimpleEncoder.Encode(benchEncSimpleVal); err != nil || got != "Alice is 30 true" {
 		t.Errorf("Encode simple = (%q, %v), want (%q, nil)", got, err, "Alice is 30 true")
@@ -39,6 +40,15 @@ func checkEncoderFixtures(t *testing.T) {
 	}
 	if got, err := benchEncWideEncoder.Encode(benchEncWideVal); err != nil || got != "a b c d e f g h i j" {
 		t.Errorf("Encode manyFields = (%q, %v), want %q", got, err, "a b c d e f g h i j")
+	}
+	if got, err := benchEncSimpleEncoder.EncodeStrict(benchEncSimpleVal); err != nil || got != "Alice is 30 true" {
+		t.Errorf("EncodeStrict simple = (%q, %v), want (%q, nil)", got, err, "Alice is 30 true")
+	}
+	if got, err := benchEncTimeEncoder.EncodeStrict(benchEncTimeVal); err != nil || got != "2024-03-02T15:04:05Z" {
+		t.Errorf("EncodeStrict withTime = (%q, %v), want RFC3339", got, err)
+	}
+	if got, err := benchEncWideEncoder.EncodeStrict(benchEncWideVal); err != nil || got != "a b c d e f g h i j" {
+		t.Errorf("EncodeStrict manyFields = (%q, %v), want %q", got, err, "a b c d e f g h i j")
 	}
 }
 

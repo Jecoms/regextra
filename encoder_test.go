@@ -768,6 +768,101 @@ func TestEncodeStrict_nestedNamedGroupRecompiles(t *testing.T) {
 	}
 }
 
+func TestEncodeStrict_edgeAssertionFalsePassRejected(t *testing.T) {
+	// A `\b` at the group's edge is context-dependent: `foo` alone matches
+	// `\A(?:\bfoo)\z` (start-of-text is a boundary), but in the emitted string
+	// the group follows the word rune `X`, so `X(?P<v>\bfoo)` can never decode
+	// "Xfoo". The strict matcher bakes in the adjacent literal rune and must
+	// reject rather than falsely pass.
+	type P struct {
+		V string `regex:"v"`
+	}
+	d := rx.MustCompile[P](`X(?P<v>\bfoo)`)
+	e, err := d.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder() returned %v", err)
+	}
+	if _, derr := d.One("Xfoo"); !errors.Is(derr, rx.ErrNoMatch) {
+		t.Fatalf("fixture sanity: One(Xfoo) err = %v, want ErrNoMatch", derr)
+	}
+	if _, err := e.EncodeStrict(P{V: "foo"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(foo) err = %v, want ErrValueMismatch (output would not decode)", err)
+	}
+
+	// Same shape on the trailing edge: `X` after the group kills the `\b`.
+	d2 := rx.MustCompile[P](`(?P<v>foo\b)X`)
+	e2, err := d2.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder() returned %v", err)
+	}
+	if _, err := e2.EncodeStrict(P{V: "foo"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(foo) trailing err = %v, want ErrValueMismatch", err)
+	}
+
+	// A multiline `$` at the edge is context-dependent the same way: it holds
+	// before `\n` but not before `b`.
+	d3 := rx.MustCompile[P](`a(?P<v>(?m:foo$))b`)
+	e3, err := d3.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder() returned %v", err)
+	}
+	if _, err := e3.EncodeStrict(P{V: "foo"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(foo) multiline-$ err = %v, want ErrValueMismatch", err)
+	}
+}
+
+func TestEncodeStrict_edgeAssertionFalseRejectFixed(t *testing.T) {
+	// The inverse direction: `\B` at the group's edge holds in the emitted
+	// context (`x` before `foo`, both word runes) even though `foo` alone fails
+	// `\A(?:\Bfoo)\z`. The value round-trips, so strict must pass.
+	type P struct {
+		V string `regex:"v"`
+	}
+	d := rx.MustCompile[P](`x(?P<v>\Bfoo)`)
+	e, err := d.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder() returned %v", err)
+	}
+	got, err := e.EncodeStrict(P{V: "foo"})
+	if err != nil {
+		t.Fatalf("EncodeStrict(foo) returned %v, want nil (value round-trips)", err)
+	}
+	if got != "xfoo" {
+		t.Fatalf("EncodeStrict = %q, want %q", got, "xfoo")
+	}
+	rt, err := d.One(got)
+	if err != nil || rt.V != "foo" {
+		t.Errorf("round-trip One(%q) = (%+v, %v), want V=foo, nil", got, rt, err)
+	}
+
+	// A `\b` whose neighbor is a non-word rune still holds with context baked
+	// in — the delimiter case must keep passing.
+	d2 := rx.MustCompile[P](`(?P<v>foo\b)-bar`)
+	e2, err := d2.Encoder()
+	if err != nil {
+		t.Fatalf("Encoder() returned %v", err)
+	}
+	if got, err := e2.EncodeStrict(P{V: "foo"}); err != nil || got != "foo-bar" {
+		t.Errorf("EncodeStrict(foo) = (%q, %v), want (%q, nil)", got, err, "foo-bar")
+	}
+}
+
+func TestEncodeStrict_edgeAssertionAtPlanBoundary(t *testing.T) {
+	// With no neighboring literal, start/end-of-text is the true emitted
+	// context, so the bare anchored matcher is already exact: `\bfoo\b` alone
+	// accepts "foo" and rejects a value that breaks the boundary.
+	type P struct {
+		V string `regex:"v"`
+	}
+	e := mustEncoder[P](t, `(?P<v>\bfoo\b)`)
+	if got, err := e.EncodeStrict(P{V: "foo"}); err != nil || got != "foo" {
+		t.Errorf("EncodeStrict(foo) = (%q, %v), want (%q, nil)", got, err, "foo")
+	}
+	if _, err := e.EncodeStrict(P{V: "food"}); !errors.Is(err, rx.ErrValueMismatch) {
+		t.Errorf("EncodeStrict(food) err = %v, want ErrValueMismatch", err)
+	}
+}
+
 func TestEncodeStrict_reportsRightField(t *testing.T) {
 	type P struct {
 		Name string `regex:"name"`

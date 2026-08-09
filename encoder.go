@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrNotInvertible categorizes a [Decoder.Encoder] failure where the decoder's
@@ -123,9 +124,24 @@ type encodeSegment struct {
 	subPattern string
 	// strictRE is subPattern compiled as the anchored matcher `\A(?:sub)\z`,
 	// consulted only by EncodeStrict to verify the encoded value re-matches the
-	// group it fills. Compiled eagerly at derivation so Encoders keep no shared
-	// mutable state after construction. Valid only when field is true.
+	// group it fills. When the sub-pattern contains a zero-width assertion,
+	// compileStrictContext rebuilds it with one rune of adjacent literal context
+	// baked in on each side (`\A<prev>(?:sub)<next>\z`) so edge assertions
+	// evaluate against the characters the emitted string actually places there.
+	// Compiled eagerly at derivation so Encoders keep no shared mutable state
+	// after construction. Valid only when field is true.
 	strictRE *regexp.Regexp
+	// strictPrefix and strictSuffix are the context runes baked into strictRE
+	// (empty when strictRE is the bare anchored matcher). EncodeStrict matches
+	// strictRE against strictPrefix+value+strictSuffix. Valid only when field is
+	// true.
+	strictPrefix string
+	strictSuffix string
+	// ctxSensitive records whether subPattern contains a zero-width assertion
+	// (`\b`, `\B`, `^`, `$`, `\A`, `\z`) whose truth at the value's edges depends
+	// on adjacent characters. Consulted only by compileStrictContext during
+	// derivation. Valid only when field is true.
+	ctxSensitive bool
 }
 
 // RegexMarshaler is the interface implemented by types that render themselves
@@ -170,8 +186,10 @@ var (
 
 // EncodeError reports the failure to render a struct field into its capture-group
 // slot. It is the encode-side mirror of [DecodeError], returned (wrapped with the
-// calling entrypoint's prefix) by [Encoder.Encode] when a field's value cannot be
-// converted to a string. Recover it with [errors.As] to branch on the failure
+// calling entrypoint's prefix) by [Encoder.Encode] and [Encoder.EncodeStrict]
+// when a field's value cannot be converted to a string, and by EncodeStrict
+// additionally when an encoded value fails its group's re-match check (Err wraps
+// [ErrValueMismatch]). Recover it with [errors.As] to branch on the failure
 // without parsing message text:
 //
 //	var ee *regextra.EncodeError
@@ -180,8 +198,9 @@ var (
 //	}
 //
 // Err holds the underlying cause (e.g. an error from a custom [RegexMarshaler]
-// or [encoding.TextMarshaler], or a nil-pointer or nil-interface field) and is
-// reachable via [errors.Is]/[errors.As] through Unwrap.
+// or [encoding.TextMarshaler], a nil-pointer or nil-interface field, or
+// EncodeStrict's [ErrValueMismatch]) and is reachable via
+// [errors.Is]/[errors.As] through Unwrap.
 type EncodeError struct {
 	// Field is the source struct field name.
 	Field string
@@ -253,11 +272,76 @@ func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 		return nil, err
 	}
 	sb.flushLiteral()
+	if err := compileStrictContext(sb.segments); err != nil {
+		return nil, err
+	}
 
 	return &Encoder[T]{
 		rtype:    rt,
 		segments: sb.segments,
 	}, nil
+}
+
+// compileStrictContext rebuilds the strict matcher of every field segment whose
+// sub-pattern contains a zero-width assertion, baking one rune of adjacent
+// literal context into each side (`\A<prev>(?:sub)<next>\z`) so assertions at
+// the value's edges — `\b`, `\B`, a multiline `^`/`$`, `\A`, `\z` — evaluate
+// against the characters the emitted string actually places there, not against
+// the bare value in isolation. Every RE2 zero-width assertion examines at most
+// one adjacent rune, so one rune of context is exact; and because the quoted
+// context runes are fixed-length between the `\A`/`\z` anchors, the sub-pattern
+// is still forced to match exactly the value span. A side with no adjacent
+// literal contributes no context: at the plan's boundary the bare anchored
+// matcher is already the true context, and a side adjoining another field
+// segment (adjacent captures, no literal between) is unknowable — that
+// ambiguity is already out of scope for the round-trip contract.
+func compileStrictContext(segs []encodeSegment) error {
+	for i := range segs {
+		if !segs[i].field || !segs[i].ctxSensitive {
+			continue
+		}
+		var prev, next string
+		if i > 0 && !segs[i-1].field {
+			r, _ := utf8.DecodeLastRuneInString(segs[i-1].literal)
+			prev = string(r)
+		}
+		if i+1 < len(segs) && !segs[i+1].field {
+			r, _ := utf8.DecodeRuneInString(segs[i+1].literal)
+			next = string(r)
+		}
+		if prev == "" && next == "" {
+			continue
+		}
+		re, err := regexp.Compile(`\A` + regexp.QuoteMeta(prev) + `(?:` + segs[i].subPattern + `)` + regexp.QuoteMeta(next) + `\z`)
+		if err != nil {
+			// Unreachable in practice — the bare form of the same sub-pattern
+			// already compiled in walkCapture — but surfaced defensively rather
+			// than panicked, mirroring that branch.
+			return fmt.Errorf("%w: %w", ErrInvalidPattern, err)
+		}
+		segs[i].strictRE = re
+		segs[i].strictPrefix = prev
+		segs[i].strictSuffix = next
+	}
+	return nil
+}
+
+// containsZeroWidthAssertion reports whether re's subtree contains a zero-width
+// assertion (`^`, `$`, `\A`, `\z`, `\b`, `\B`) — the constructs whose truth at
+// the edges of a matched span depends on the characters adjacent to it.
+func containsZeroWidthAssertion(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpBeginLine, syntax.OpEndLine,
+		syntax.OpBeginText, syntax.OpEndText,
+		syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return true
+	}
+	for _, sub := range re.Sub {
+		if containsZeroWidthAssertion(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // MustEncoder is like [Decoder.Encoder] but panics on error. Intended for
@@ -368,12 +452,13 @@ func walkCapture(rt reflect.Type, re *syntax.Regexp, sb *encodeSegmentBuilder) e
 		return fmt.Errorf("%w: %w", ErrInvalidPattern, err)
 	}
 	sb.addField(encodeSegment{
-		field:      true,
-		fieldIndex: idx,
-		name:       re.Name,
-		opts:       opts,
-		subPattern: subPattern,
-		strictRE:   strictRE,
+		field:        true,
+		fieldIndex:   idx,
+		name:         re.Name,
+		opts:         opts,
+		subPattern:   subPattern,
+		strictRE:     strictRE,
+		ctxSensitive: containsZeroWidthAssertion(re.Sub[0]),
 	})
 	return nil
 }
@@ -537,6 +622,10 @@ func encodableType(t reflect.Type) bool {
 // substitution for an absent group, whereas Encode always emits the field's
 // actual value. `layout=` is honored so a time.Time re-parses under [Decoder]'s
 // exclusive-layout rule.
+//
+// Encode performs no verification that the output re-decodes; see
+// [Encoder.EncodeStrict] for the variant that re-matches each encoded value
+// against its group's sub-pattern.
 func (e *Encoder[T]) Encode(v T) (string, error) {
 	return e.encode(v, false, "regextra.Encoder.Encode")
 }
@@ -550,8 +639,16 @@ func (e *Encoder[T]) Encode(v T) (string, error) {
 // the sub-pattern it failed.
 //
 // Each check is a full anchored match (`\A(?:sub)\z`), so a value that only
-// partially matches its sub-pattern fails. The cost is one regexp match per
-// field per call; [Encoder.Encode] skips the checks entirely.
+// partially matches its sub-pattern fails. When the sub-pattern contains a
+// zero-width assertion (`\b`, `\B`, a multiline `^`/`$`, `\A`, `\z`), the
+// matcher additionally bakes in one rune of the adjacent literal segments so
+// assertions at the value's edges evaluate against the characters the emitted
+// string actually places there — `X(?P<v>\bfoo)` rejects v = "foo" (no word
+// boundary between `X` and `f` in the output) even though `foo` alone matches
+// `\bfoo` in isolation. An edge that adjoins another capture with no literal
+// between has no known neighbor; it is checked without context, consistent with
+// the adjacent-captures carve-out below. The cost is one regexp match per field
+// per call; [Encoder.Encode] skips the checks entirely.
 //
 // EncodeStrict verifies the contract's stated per-group condition, not a full
 // re-decode: values that collide with a surrounding literal delimiter, or two
@@ -583,8 +680,17 @@ func (e *Encoder[T]) encode(v T, strict bool, entrypoint string) (string, error)
 		}
 		field := rv.Field(seg.fieldIndex)
 		s, err := encodeFieldValue(field, seg.opts)
-		if err == nil && strict && !seg.strictRE.MatchString(s) {
-			err = fmt.Errorf("%w: value %q does not match sub-pattern `%s`", ErrValueMismatch, s, seg.subPattern)
+		if err == nil && strict {
+			// The probe carries the adjacent-context runes baked into strictRE
+			// (both empty for the common no-assertion sub-pattern, keeping the
+			// fast path concatenation-free).
+			probe := s
+			if seg.strictPrefix != "" || seg.strictSuffix != "" {
+				probe = seg.strictPrefix + s + seg.strictSuffix
+			}
+			if !seg.strictRE.MatchString(probe) {
+				err = fmt.Errorf("%w: value %q does not match sub-pattern `%s`", ErrValueMismatch, s, seg.subPattern)
+			}
 		}
 		if err != nil {
 			sf := e.rtype.Field(seg.fieldIndex)
