@@ -114,6 +114,13 @@ type encodeSegment struct {
 // A type that implements both RegexMarshaler and [RegexUnmarshaler] round-trips
 // symmetrically through [Encoder] and [Decoder].
 //
+// Conversion precedence mirrors the decode side (see [RegexUnmarshaler]): for
+// each field, Encode tries (1) RegexMarshaler, (2) the time.Time /
+// time.Duration special-cases, (3) [encoding.TextMarshaler], (4) the built-in
+// string/int/uint/float/bool conversion. A type implementing both
+// RegexMarshaler and [encoding.TextMarshaler] therefore dispatches on
+// MarshalRegex.
+//
 // Example:
 //
 //	type Status int

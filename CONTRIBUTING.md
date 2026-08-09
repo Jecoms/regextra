@@ -115,7 +115,9 @@ cp CLAUDE.md.example CLAUDE.md
   and how to use it (the contract a caller relies on), not how it's implemented
   internally
 - Include usage examples in the godoc
-- Update README.md when adding new public APIs
+- When adding a new public API, add a row to the README's API table (linking
+  its pkg.go.dev anchor) — the godoc comment is the full reference; the README
+  is a front page and does not duplicate per-symbol contracts
 - Add example tests that demonstrate usage
 - **A comment describes the code as it stands now, never a past version of it.**
   When you refactor, don't leave the old implementation behind as a comment
@@ -190,7 +192,7 @@ regextra/
 ├── encoder_bench_test.go  # benchmarks for encoder.go
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)
 ├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
-├── README.md              # Public API documentation
+├── README.md              # Front page: install, usage tour, API table, stability policy
 ├── AGENTS.md.example      # Template for a personal (gitignored) agent guide
 ├── CLAUDE.md.example      # Template for a personal (gitignored) Claude Code guide
 ├── CONTRIBUTING.md         # This file
@@ -232,7 +234,8 @@ go test -bench=. -benchmem
 1. **Run tests locally**: `go test -v -race ./...`
 2. **Run linter**: `golangci-lint run`
 3. **Check formatting**: `gofmt -s -l .`
-4. **Update documentation**: Add examples and update README if needed
+4. **Update documentation**: Write the godoc contract and examples; for a new
+   public API, add a row to the README's API table
 5. **Add a CHANGELOG entry**: for a feature or a change to existing behavior, add an entry under `## [Unreleased]` in `CHANGELOG.md` (see [Changelog](#changelog))
 6. **Check benchmarks**: for hot-path or feature changes, confirm the relevant `*_bench_test.go` benchmarks hold or improve (or justify the regression)
 
