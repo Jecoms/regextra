@@ -75,6 +75,7 @@ func main() {
 | [`Replace`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Replace) | Substitute named-group spans by name, in every match |
 | [`ReplaceFirst`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ReplaceFirst) | Substitute named-group spans in the first match only |
 | [`ReplaceFunc`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ReplaceFunc) | Substitute named-group spans via a callback over the matched value |
+| [`ReplaceFuncFirst`](https://pkg.go.dev/github.com/jecoms/regextra/v2#ReplaceFuncFirst) | Substitute named-group spans via a callback, in the first match only |
 | [`Validate`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Validate) | Assert at startup that required group names are declared on a pattern |
 | [`Unmarshal`](https://pkg.go.dev/github.com/jecoms/regextra/v2#Unmarshal) | Decode the first match into a struct, with type conversion and `regex:"..."` tags |
 | [`UnmarshalAll`](https://pkg.go.dev/github.com/jecoms/regextra/v2#UnmarshalAll) | Decode every match into a slice of structs |

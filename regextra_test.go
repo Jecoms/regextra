@@ -838,6 +838,187 @@ func ExampleReplaceFunc() {
 	// Output: card ************1111 ok
 }
 
+func TestReplaceFuncFirst(t *testing.T) {
+	upper := func(_, m string) string { return strings.ToUpper(m) }
+
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		fn      func(group, match string) string
+		want    string
+	}{
+		{
+			name:    "first match substituted, later matches untouched",
+			pattern: `(?P<card>\d{12,19})`,
+			target:  "4111111111111111 then 4242424242424242",
+			fn: func(_, m string) string {
+				return strings.Repeat("*", len(m)-4) + m[len(m)-4:]
+			},
+			want: "************1111 then 4242424242424242",
+		},
+		{
+			name:    "single match behaves like ReplaceFunc",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com",
+			fn:      upper,
+			want:    "ALICE@EXAMPLE.COM",
+		},
+		{
+			name:    "text before and after the first match passes through",
+			pattern: `(?P<num>\d+)`,
+			target:  "a 1 b 2 c 3 d",
+			fn:      func(_, m string) string { return "<" + m + ">" },
+			want:    "a <1> b 2 c 3 d",
+		},
+		{
+			name:    "fn receives the group name",
+			pattern: `(?P<key>\w+)=(?P<val>\d+)`,
+			target:  "a=1 b=2",
+			fn:      func(group, m string) string { return group + ":" + m },
+			want:    "key:a=val:1 b=2",
+		},
+		{
+			name:    "return match verbatim leaves the group unchanged",
+			pattern: `(?P<user>\w+)@(?P<domain>[\w.]+)`,
+			target:  "alice@example.com bob@other.org",
+			fn: func(group, m string) string {
+				if group == "domain" {
+					return "redacted"
+				}
+				return m // leave user unchanged
+			},
+			want: "alice@redacted bob@other.org",
+		},
+		{
+			name:    "no match returns target unchanged",
+			pattern: `(?P<word>[A-Z]+)`,
+			target:  "no matches here",
+			fn:      upper,
+			want:    "no matches here",
+		},
+		{
+			// Overlap/nesting within the first match follows ReplaceFunc's rule:
+			// the outermost span (same start, larger end) wins and the inner group
+			// inside the already-substituted span never reaches fn. Only the first
+			// match is processed.
+			name:    "nested groups within first match, outermost wins",
+			pattern: `(?P<outer>(?P<inner>\w+)@[\w.]+)`,
+			target:  "alice@example.com bob@other.org",
+			fn:      upper,
+			want:    "ALICE@EXAMPLE.COM bob@other.org",
+		},
+		{
+			// Non-participating optional group is skipped, so fn never sees it.
+			name:    "optional non-participating group skipped",
+			pattern: `(?P<word>\w+)(?P<bang>!)?`,
+			target:  "hi there",
+			fn:      func(_, m string) string { return "[" + m + "]" },
+			want:    "[hi] there",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			got := rx.ReplaceFuncFirst(re, tt.target, tt.fn)
+			if got != tt.want {
+				t.Errorf("ReplaceFuncFirst = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestReplaceFuncFirstRemainderByteIdentical asserts that everything from the
+// end of the first match onward is copied through byte-for-byte, not re-scanned.
+func TestReplaceFuncFirstRemainderByteIdentical(t *testing.T) {
+	re := regexp.MustCompile(`(?P<word>\w+)`)
+	target := "alpha beta gamma delta"
+	got := rx.ReplaceFuncFirst(re, target, func(_, _ string) string { return "X" })
+	const want = "X beta gamma delta"
+	if got != want {
+		t.Fatalf("ReplaceFuncFirst = %q, want %q", got, want)
+	}
+	// The tail after the first match must equal the original target's tail.
+	firstLoc := re.FindStringIndex(target)
+	if tail := got[len("X"):]; tail != target[firstLoc[1]:] {
+		t.Errorf("tail after first match = %q, want %q", tail, target[firstLoc[1]:])
+	}
+}
+
+func TestReplaceFuncFirstInnerGroupNotInvoked(t *testing.T) {
+	// fn must never be called for an inner group suppressed by an outermost
+	// span — assert the callback is not invoked for the "inner" name.
+	re := regexp.MustCompile(`(?P<outer>(?P<inner>\w+)@[\w.]+)`)
+	var seen []string
+	out := rx.ReplaceFuncFirst(re, "alice@example.com bob@other.org", func(group, m string) string {
+		seen = append(seen, group)
+		return strings.ToUpper(m)
+	})
+	if out != "ALICE@EXAMPLE.COM bob@other.org" {
+		t.Errorf("ReplaceFuncFirst = %q, want %q", out, "ALICE@EXAMPLE.COM bob@other.org")
+	}
+	for _, g := range seen {
+		if g == "inner" {
+			t.Errorf("fn invoked for suppressed inner group; groups seen = %v", seen)
+		}
+	}
+	if len(seen) != 1 || seen[0] != "outer" {
+		t.Errorf("groups seen = %v, want [outer]", seen)
+	}
+}
+
+func TestReplaceFuncFirstNoMatchNeverCallsFn(t *testing.T) {
+	re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+	called := false
+	out := rx.ReplaceFuncFirst(re, "no matches here", func(_, m string) string {
+		called = true
+		return m
+	})
+	if called {
+		t.Error("fn was called despite no match")
+	}
+	if out != "no matches here" {
+		t.Errorf("ReplaceFuncFirst = %q, want target unchanged", out)
+	}
+}
+
+func TestReplaceFuncFirstNilFn(t *testing.T) {
+	// A nil fn is a programmer error. It panics on the first substituted match,
+	// mirroring regexp.Regexp.ReplaceAllStringFunc, but never panics when there
+	// is nothing to substitute (no match returns target before fn is reached).
+	t.Run("panics on first match", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Error("ReplaceFuncFirst with nil fn did not panic on a match")
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		rx.ReplaceFuncFirst(re, "HELLO", nil)
+	})
+
+	t.Run("no panic on no match", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("ReplaceFuncFirst with nil fn panicked on no match: %v", r)
+			}
+		}()
+		re := regexp.MustCompile(`(?P<word>[A-Z]+)`)
+		if out := rx.ReplaceFuncFirst(re, "no matches here", nil); out != "no matches here" {
+			t.Errorf("ReplaceFuncFirst = %q, want target unchanged", out)
+		}
+	})
+}
+
+func ExampleReplaceFuncFirst() {
+	// Mask only the first captured card number; later matches pass through.
+	re := regexp.MustCompile(`(?P<card>\d{12,19})`)
+	out := rx.ReplaceFuncFirst(re, "4111111111111111 then 4242424242424242", func(_, match string) string {
+		return strings.Repeat("*", len(match)-4) + match[len(match)-4:]
+	})
+	fmt.Println(out)
+	// Output: ************1111 then 4242424242424242
+}
+
 func TestValidate(t *testing.T) {
 	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
 

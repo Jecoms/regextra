@@ -159,6 +159,20 @@ When designing new features, follow established stdlib patterns if using same na
 - `Unmarshal(re, target, v any)` mirrors `json.Unmarshal`
 - Return errors for validation issues, not panics
 
+### Free functions serve the 80% case
+
+Package-level free functions exist for the common, zero-configuration call. Each
+new axis of variation (static map vs. callback, all matches vs. first match, …)
+*doubles* the function count, so an axis must earn its place; anything with two
+or more knobs belongs on `Decoder` (or a future options-taking variant), not on
+a new free function.
+
+Applied to the replace family: it is **closed at four functions** —
+`Replace`, `ReplaceFirst`, `ReplaceFunc`, `ReplaceFuncFirst` (the full
+static/func × all/first matrix, [#198](https://github.com/Jecoms/regextra/issues/198)).
+Match limits other than 1/-1, per-group callbacks, byte offsets, and any other
+added configuration are out of scope for free functions.
+
 ### Performance Considerations
 - Prefer stdlib implementations over custom code
 - Profile before optimizing

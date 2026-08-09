@@ -375,6 +375,29 @@ func BenchmarkReplaceFunc(b *testing.B) {
 	benchCase(b, "largeManyMatches", func() { sinkStr = rx.ReplaceFunc(bnRepEmailRe, bnRepMulti1200In, bnRepFuncUpper) })
 }
 
+// ── ReplaceFuncFirst ────────────────────────────────────────────────────────
+//
+// ReplaceFunc's callback dispatch on ReplaceFirst's limit=1 scan: only the
+// first match's named spans reach fn, after which the shared trailing-cursor
+// write copies every later match and all outside text byte-for-byte. Cost is
+// bounded by the first match's group count plus the verbatim remainder length,
+// not total match count; the callback axis mirrors ReplaceFunc (identity
+// isolates dispatch overhead). Reuses the bnRep* fixtures.
+func BenchmarkReplaceFuncFirst(b *testing.B) {
+	// representative — one match, then a batch where only the first is rewritten.
+	benchCase(b, "singleGroup", func() { sinkStr = rx.ReplaceFuncFirst(bnRepEmailRe, bnRepSingleIn, bnRepFuncUpper) })
+	benchCase(b, "matches100", func() { sinkStr = rx.ReplaceFuncFirst(bnRepEmailRe, bnRepMulti100In, bnRepFuncUpper) }) // first replaced, 99 + tail verbatim
+	// edge — no match takes the early return; fn is never called.
+	benchCase(b, "noMatch", func() { sinkStr = rx.ReplaceFuncFirst(bnRepEmailRe, bnRepNoMatchIn, bnRepFuncUpper) })
+	// dispatch-only — identity callback isolates closure/indirection cost.
+	benchCase(b, "identity", func() { sinkStr = rx.ReplaceFuncFirst(bnRepEmailRe, bnRepMulti100In, bnRepFuncIdentity) })
+	// pathological — overlap (outermost wins, inner fn suppressed) and optional skip.
+	benchCase(b, "nestedGroups", func() { sinkStr = rx.ReplaceFuncFirst(bnRepNestRe, bnRepSingleIn, bnRepFuncUpper) })
+	benchCase(b, "optionalNonParticipating", func() { sinkStr = rx.ReplaceFuncFirst(bnRepOptRe, bnRepOptIn, bnRepFuncUpper) })
+	// scaling — verbatim-remainder copy dominates as match count grows.
+	benchCase(b, "largeManyMatches", func() { sinkStr = rx.ReplaceFuncFirst(bnRepEmailRe, bnRepMulti1200In, bnRepFuncUpper) })
+}
+
 // ── Validate ──────────────────────────────────────────────────────────────────
 //
 // Cost model: build a set of declared names from SubexpNames (scales with
