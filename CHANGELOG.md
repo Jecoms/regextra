@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **ReDoS posture documented in SECURITY.md.** Added a "Scope of protection" subsection stating that all matching goes through Go's standard library `regexp` (RE2 syntax, linear-time in the size of the input, no backtracking engine): hostile *target* input cannot trigger catastrophic backtracking, while hostile *patterns* stay out of scope — even at DoS-grade cost — as the caller's trust decision, same as with stdlib `regexp` itself. Behavior unchanged. ([#195](https://github.com/Jecoms/regextra/issues/195), [#209](https://github.com/Jecoms/regextra/pull/209))
+
 ## [2.0.1] - 2026-07-02
 
 ### Changed
