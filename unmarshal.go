@@ -212,11 +212,14 @@ func getDecodePlan(rt reflect.Type, re *regexp.Regexp) ([]fieldDecoder, error) {
 //     `required`), recursively through nested `inline` tags. A nil embedded
 //     pointer is allocated when a promoted field beneath it decodes.
 //     Precedence follows encoding/json: a shallower field bound to a group
-//     shadows a deeper promoted field bound to the same group, and two
-//     promoted fields binding the same group at equal depth are ambiguous —
-//     both are dropped here (best-effort posture), while the strict [Compile]
-//     rejects the struct. An embedded field without the flag keeps the
-//     historical behavior (no promotion); `regex:"-"` excludes it entirely
+//     shadows a deeper promoted field bound to the same group; when promoted
+//     fields binding the same group tie at the shallowest depth, a sole
+//     binding whose group name came from an explicit `regex:"name"` tag wins
+//     over the field-name-matched ones (json's tagged-beats-untagged
+//     tiebreak), and a tie with no tagged binding — or with several — is
+//     ambiguous: every binding of the group is dropped here (best-effort
+//     posture), while the strict [Compile] rejects the struct. An embedded
+//     field without the flag is not promoted; `regex:"-"` excludes it entirely
 //
 // On no match, Unmarshal returns nil and leaves *v unchanged — no match is data
 // absence, not a failure. Callers who need to distinguish "matched" from
@@ -389,9 +392,11 @@ func UnmarshalAll(re *regexp.Regexp, target string, v any) error {
 //     token staying inert.
 //
 // The two forms differ:
-//   - `regex:""` (no tag) signals "no name", returning ("", nil, false); the
-//     caller falls back to matching the field's own name against a group.
-//   - `regex:"-"` signals "exclude this field", returning ("", nil, true); the
+//   - `regex:""` (no tag) signals "no name", returning
+//     ("", nil, false, false, false); the caller falls back to matching the
+//     field's own name against a group.
+//   - `regex:"-"` signals "exclude this field", returning
+//     ("", nil, false, false, true); the
 //     caller excludes the field entirely, never attempting a name fallback. This
 //     mirrors the `-` convention in encoding/json, encoding/xml, and
 //     gopkg.in/yaml. Only the bare `-` tag excludes; a leading `-` followed by

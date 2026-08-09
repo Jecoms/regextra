@@ -19,7 +19,10 @@ var ErrNoMatch = errors.New("regextra: no match")
 // errors.Is rather than parsing the message. ErrInvalidPattern wraps a bad
 // regular expression; ErrInvalidStruct wraps every destination-shape problem
 // (T is not a struct, a field references an undeclared group, a `default=`
-// value does not convert, or `layout=` sits on a non-time.Time field). Each
+// value does not convert, `layout=` sits on a non-time.Time field, the
+// `inline` flag sits on a non-embedded or non-struct field or is combined
+// with a group name, or `inline`-promoted fields bind the same capture group
+// at equal depth with no sole tagged binding to break the tie). Each
 // wrapped error keeps its descriptive detail — and, where one exists, the
 // underlying cause — reachable via errors.Is/As. Like ErrNoMatch, these
 // sentinels carry the bare `regextra:` prefix reserved for package-level
@@ -98,7 +101,8 @@ type fieldDecoder struct {
 //   - The `inline` flag sits on a non-embedded (or non-struct) field, or is
 //     combined with a group name (e.g. `regex:"meta,inline"`)
 //   - Two `inline`-promoted fields at equal embedding depth bind the same
-//     capture group (see [Unmarshal]'s embedded-struct promotion rules)
+//     capture group and the tie is not broken by a sole explicitly tagged
+//     binding (see [Unmarshal]'s embedded-struct promotion rules)
 //
 // Once Compile returns nil, the resulting Decoder is fully validated and
 // guaranteed not to produce tag-related errors at decode time.
@@ -174,17 +178,20 @@ func compileDecoder[T any](pattern string, re *regexp.Regexp) (*Decoder[T], erro
 // full top-level treatment (tag parse, name fallback, strict validation), each
 // carrying the multi-element index path back to its slot. Promotion follows
 // encoding/json precedence — a shallower field bound to a group shadows a
-// deeper promoted field bound to the same group, and two promoted fields bound
-// to the same group at equal depth are rejected under strict (wrapped
-// [ErrInvalidStruct]) and both dropped under lenient, mirroring
-// encoding/json's ambiguous-field rule. Untagged embedded fields keep the
-// historical non-promoted behavior. Strict additionally rejects `inline` on a
-// non-embedded or non-struct field and a group name combined with `inline`
-// (e.g. `regex:"meta,inline"`); lenient ignores the misplaced flag and treats
-// the field as if it were absent from the tag.
+// deeper promoted field bound to the same group; when promoted fields bound to
+// the same group tie at the shallowest depth, a sole explicitly tagged binding
+// wins over field-name-matched ones (encoding/json's tagged-beats-untagged
+// tiebreak), and a tie with no tagged binding — or with several — is rejected
+// under strict (wrapped [ErrInvalidStruct]) with every binding of the group
+// dropped under lenient, mirroring encoding/json's ambiguous-field rule.
+// Embedded fields without the flag are not promoted. Strict additionally
+// rejects `inline` on a non-embedded or non-struct field and a group name
+// combined with `inline` (e.g. `regex:"meta,inline"`); lenient ignores the
+// misplaced flag and treats the field as if it were absent from the tag.
 func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDecoder, error) {
-	// NumField is a strict lower bound on candidate entries (promotion can add
-	// more, but the flat case — the overwhelmingly common one — never grows).
+	// NumField is an upper bound on candidate entries in the flat case — the
+	// loop only ever skips fields — which is what makes it the right capacity
+	// hint; only promotion can push the count past it.
 	entries := make([]decodePlanEntry, 0, rt.NumField())
 	if err := collectDecodeFields(rt, re, strict, nil, []reflect.Type{rt}, &entries); err != nil {
 		return nil, err
@@ -194,11 +201,16 @@ func buildDecodePlan(rt reflect.Type, re *regexp.Regexp, strict bool) ([]fieldDe
 
 // decodePlanEntry is one candidate plan entry during buildDecodePlan's
 // collection pass, before promotion shadowing is resolved: the fieldDecoder
-// plus the group name it bound (empty for a default-/required-only field with
-// no declared group).
+// plus the group name it bound and whether that name came from an explicit
+// `regex:"name"` tag. group is empty only for an untagged field whose name
+// matched no declared group (retained for its `default=` or `required`); a
+// tagged field whose group is undeclared keeps its tag name here with empty
+// fd.groupIndexes — resolvePromotionShadowing's groupIndexes filter is what
+// keeps those out of contention, not an empty group.
 type decodePlanEntry struct {
-	fd    fieldDecoder
-	group string
+	fd     fieldDecoder
+	group  string
+	tagged bool
 }
 
 // collectDecodeFields walks one struct level of the decode-plan build,
@@ -217,6 +229,11 @@ func collectDecodeFields(rt reflect.Type, re *regexp.Regexp, strict bool, path [
 		}
 
 		groupName, opts, required, inline, skip := parseFieldTag(sf)
+		// An explicit tag name binds exactly and, at equal promotion depth,
+		// beats field-name-matched bindings (resolvePromotionShadowing's
+		// tiebreak) — record its provenance before the name fallback below
+		// erases the distinction.
+		tagged := groupName != ""
 		if skip {
 			// `regex:"-"` excludes the field entirely — it never enters the
 			// decode plan and no name fallback is attempted. On an embedded
@@ -237,7 +254,8 @@ func collectDecodeFields(rt reflect.Type, re *regexp.Regexp, strict bool, path [
 				// A group name binds the embedded field itself; inline
 				// dissolves it into its promoted fields. The two are mutually
 				// exclusive. Lenient ignores the flag and keeps the name
-				// binding, matching the pre-inline behavior of the same tag.
+				// binding: the embedded field itself binds the group and no
+				// promotion happens.
 				if strict {
 					return fmt.Errorf("%w: field %s combines a group name %q with the `inline` flag", ErrInvalidStruct, sf.Name, groupName)
 				}
@@ -309,7 +327,8 @@ func collectDecodeFields(rt reflect.Type, re *regexp.Regexp, strict bool, path [
 				opts:         opts,
 				required:     required,
 			},
-			group: groupName,
+			group:  groupName,
+			tagged: tagged,
 		})
 	}
 
@@ -356,15 +375,24 @@ func typeOnPath(onPath []reflect.Type, t reflect.Type) bool {
 
 // resolvePromotionShadowing applies encoding/json's field-precedence rules to
 // the collected candidate entries when promotion was used: for each declared
-// group bound by more than one entry, the shallowest depth wins. Top-level
-// bindings (depth 1) keep the pre-promotion semantics — every top-level field
-// bound to the group stays in the plan, exactly as before `inline` existed —
-// and shadow all promoted bindings. When the shallowest binding is itself
-// promoted (depth > 1) and unique, it wins alone; when two promoted entries tie
-// at the shallowest depth, strict rejects the plan (wrapped [ErrInvalidStruct])
-// and lenient drops every binding of that group, mirroring encoding/json's
-// ambiguous-field rule. A flat plan (no promotion) is returned unchanged
-// without any per-group work, keeping the common path allocation-identical.
+// group bound by more than one entry, the shallowest depth wins. Every
+// top-level field (depth 1) bound to the group stays in the plan and decodes —
+// there is no winner notion among top-level bindings — and shadows all
+// promoted bindings. When the shallowest binding is itself promoted
+// (depth > 1) and unique, it wins alone; when promoted entries tie at the
+// shallowest depth, a sole explicitly tagged entry wins over the
+// field-name-matched ones (encoding/json's tagged-beats-untagged tiebreak),
+// and a tie with no tagged entry — or with several — is ambiguous: strict
+// rejects the plan (wrapped [ErrInvalidStruct]) and lenient drops every
+// binding of that group, mirroring encoding/json's ambiguous-field rule.
+//
+// A flat plan (no promotion) skips the per-group map work, but the pass is
+// not free even then: the drop mask, the output slice, and each entry's
+// heap-allocated index path (appendFieldPath) are new costs relative to the
+// pre-promotion plan build (which PR #174 had trimmed). They sit on the cold
+// plan-build path — cached per (pattern, type) — so per-decode cost is
+// unchanged; future perf work should treat plan build as having regressed by
+// those allocations, not as allocation-identical.
 func resolvePromotionShadowing(rt reflect.Type, entries []decodePlanEntry, strict bool) ([]fieldDecoder, error) {
 	promoted := false
 	for i := range entries {
@@ -403,10 +431,28 @@ func resolvePromotionShadowing(rt reflect.Type, entries []decodePlanEntry, stric
 				}
 			}
 			if minDepth > 1 && len(winners) > 1 {
+				// encoding/json's tagged-beats-untagged tiebreak: among the
+				// equal-depth promoted winners, a sole explicitly tagged
+				// binding wins and the field-name-matched ones drop. No tagged
+				// binding — or more than one — leaves the tie ambiguous.
+				taggedIdx, taggedCount := -1, 0
+				for _, i := range winners {
+					if entries[i].tagged {
+						taggedIdx, taggedCount = i, taggedCount+1
+					}
+				}
+				if taggedCount == 1 {
+					for _, i := range winners {
+						if i != taggedIdx {
+							drop[i] = true
+						}
+					}
+					continue
+				}
 				if strict {
 					a := rt.FieldByIndex(entries[winners[0]].fd.fieldIndex)
 					b := rt.FieldByIndex(entries[winners[1]].fd.fieldIndex)
-					return nil, fmt.Errorf("%w: group %q is bound by promoted fields %s and %s at equal depth", ErrInvalidStruct, group, a.Name, b.Name)
+					return nil, fmt.Errorf("%w: group %q is bound by promoted fields %s and %s at equal depth with no sole tagged binding to break the tie", ErrInvalidStruct, group, a.Name, b.Name)
 				}
 				for _, i := range idxs {
 					drop[i] = true

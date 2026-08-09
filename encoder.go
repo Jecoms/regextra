@@ -525,9 +525,13 @@ func notInvertibleError(construct string) error {
 // depth at a time, so a shallower field always wins over a promoted deeper one —
 // the same shadowing rule buildDecodePlan applies on the decode side
 // (resolvePromotionShadowing). Within one depth the exact pass runs before the
-// fold pass, preserving the pre-promotion precedence. Equal-depth ambiguity
-// needs no check here: [Compile] already rejects two promoted fields binding
-// the same group at equal depth, and [Decoder.Encoder] is only reachable
+// fold pass, so an exact name never loses to a fold sibling. Below the top
+// level the exact pass prefers an explicitly tagged binding over an untagged
+// exact one regardless of field order, mirroring the decode side's
+// tagged-beats-untagged tiebreak; at the top level, where the decode plan
+// keeps every binding of the group, the first exact match in field order picks
+// the encode source. Ties the tiebreak cannot resolve need no check here:
+// [Compile] already rejects them, and [Decoder.Encoder] is only reachable
 // through a compiled Decoder. A visited-types set terminates pointer-embedding
 // cycles, mirroring collectDecodeFields' guard.
 func resolveEncodeField(rt reflect.Type, name string) ([]int, map[string]string, bool) {
@@ -537,23 +541,39 @@ func resolveEncodeField(rt reflect.Type, name string) ([]int, map[string]string,
 	}
 	levels := []level{{nil, rt}}
 	visited := []reflect.Type{rt}
-	for len(levels) > 0 {
+	for top := true; len(levels) > 0; top = false {
 		// Exact pass first so an exact name never loses to an earlier fold
-		// sibling at the same depth.
+		// sibling at the same depth. Below the top level a tagged exact match
+		// beats an untagged one regardless of field order — the decode side's
+		// tagged-beats-untagged tiebreak makes the tagged field the decode
+		// winner, so it must be the encode source too. At the top level every
+		// exact binding stays in the decode plan, so field order decides.
+		var untaggedPath []int
+		var untaggedOpts map[string]string
 		for _, lv := range levels {
 			for i := range lv.typ.NumField() {
 				sf := lv.typ.Field(i)
 				if !sf.IsExported() {
 					continue
 				}
-				candidate, opts, _, promoted, skip := fieldCandidateName(sf)
+				candidate, opts, tagged, promoted, skip := fieldCandidateName(sf)
 				if skip || promoted {
 					continue
 				}
-				if candidate == name {
+				if candidate != name {
+					continue
+				}
+				if tagged || top {
 					return appendFieldPath(lv.path, i), opts, true
 				}
+				if untaggedPath == nil {
+					untaggedPath = appendFieldPath(lv.path, i)
+					untaggedOpts = opts
+				}
 			}
+		}
+		if untaggedPath != nil {
+			return untaggedPath, untaggedOpts, true
 		}
 		// Fold pass: only untagged fields fold. The decode side folds solely the
 		// field-name fallback (matchGroupName); an explicit `regex:` tag is matched

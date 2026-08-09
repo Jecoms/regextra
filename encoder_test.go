@@ -1105,6 +1105,55 @@ func TestEncoder_inlineShadowingOuterFieldWins(t *testing.T) {
 	}
 }
 
+func TestEncoder_inlineTaggedBeatsUntaggedExactAtEqualDepth(t *testing.T) {
+	// Mirror of the decode side's tagged-beats-untagged tiebreak: the untagged
+	// struct comes first in field order and its field name matches the group
+	// exactly, but the tagged binding is the decode winner, so it must be the
+	// encode source too.
+	type Metadata struct {
+		Host string // untagged: exact-matches group "Host"
+	}
+	type ServerInfo struct {
+		Addr string `regex:"Host"`
+	}
+	type Request struct {
+		Metadata   `regex:",inline"`
+		ServerInfo `regex:",inline"`
+	}
+	e := mustEncoder[Request](t, `(?P<Host>\S+)`)
+	got, err := e.Encode(Request{Metadata: Metadata{Host: "dropped.example"}, ServerInfo: ServerInfo{Addr: "tagged.example"}})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if got != "tagged.example" {
+		t.Errorf("Encode = %q, want the tagged field's value", got)
+	}
+}
+
+func TestEncoder_inlineTaggedBeatsUntaggedFoldAtEqualDepth(t *testing.T) {
+	// Fold variant of the tiebreak mirror: the untagged sibling only
+	// fold-matches, so the exact-pass-before-fold-pass order already prefers
+	// the tagged binding — pinned here against regression.
+	type Metadata struct {
+		Host string // untagged: fold-matches group "host"
+	}
+	type ServerInfo struct {
+		Addr string `regex:"host"`
+	}
+	type Request struct {
+		Metadata   `regex:",inline"`
+		ServerInfo `regex:",inline"`
+	}
+	e := mustEncoder[Request](t, `(?P<host>\S+)`)
+	got, err := e.Encode(Request{Metadata: Metadata{Host: "dropped.example"}, ServerInfo: ServerInfo{Addr: "tagged.example"}})
+	if err != nil {
+		t.Fatalf("Encode returned %v", err)
+	}
+	if got != "tagged.example" {
+		t.Errorf("Encode = %q, want the tagged field's value", got)
+	}
+}
+
 func TestEncoder_inlineFoldFallbackOnPromotedField(t *testing.T) {
 	type Meta struct {
 		Host string // untagged: folds against group "HOST"

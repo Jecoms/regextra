@@ -1456,6 +1456,56 @@ func TestCompile_inlineEqualDepthDuplicateRejected(t *testing.T) {
 	}
 }
 
+func TestCompile_inlineEqualDepthTaggedBeatsUntagged(t *testing.T) {
+	// encoding/json's tiebreak: at equal promotion depth, a sole explicitly
+	// tagged binding wins over a field-name (fold) one — the tie compiles.
+	type ServerInfo struct {
+		Addr string `regex:"host"`
+	}
+	type Metadata struct {
+		Host string // untagged: fold-binds "host"
+	}
+	type Request struct {
+		ServerInfo `regex:",inline"`
+		Metadata   `regex:",inline"`
+	}
+	d, err := rx.Compile[Request](`(?P<host>\S+)`)
+	if err != nil {
+		t.Fatalf("Compile returned %v, want the tagged binding to break the tie", err)
+	}
+	got, err := d.One("example.com")
+	if err != nil {
+		t.Fatalf("One returned %v", err)
+	}
+	if got.Addr != "example.com" {
+		t.Errorf("tagged ServerInfo.Addr = %q, want example.com", got.Addr)
+	}
+	if got.Host != "" {
+		t.Errorf("untagged Metadata.Host = %q, want dropped (zero)", got.Host)
+	}
+}
+
+func TestCompile_inlineEqualDepthUntaggedTieRejected(t *testing.T) {
+	// No tagged binding among the equal-depth winners: still ambiguous.
+	type MetaA struct {
+		Host string // fold-binds "host"
+	}
+	type MetaB struct {
+		Host string // fold-binds "host" too
+	}
+	type Line struct {
+		MetaA `regex:",inline"`
+		MetaB `regex:",inline"`
+	}
+	_, err := rx.Compile[Line](`(?P<host>\S+)`)
+	if err == nil {
+		t.Fatal("Compile succeeded, want untagged equal-depth tie rejected")
+	}
+	if !errors.Is(err, rx.ErrInvalidStruct) {
+		t.Errorf("error %v does not wrap ErrInvalidStruct", err)
+	}
+}
+
 func TestCompile_inlineOnNonEmbeddedFieldRejected(t *testing.T) {
 	type Line struct {
 		Host string `regex:",inline"`

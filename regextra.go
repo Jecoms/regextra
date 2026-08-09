@@ -193,12 +193,13 @@ The grammar also recognizes two flag-style tokens (no `=`):
 	                          decode and encode plans as if declared on the
 	                          outer struct, with encoding/json precedence: a
 	                          shallower field bound to a group shadows a
-	                          deeper promoted one, and two promoted fields
-	                          binding the same group at equal depth are
-	                          rejected by [Compile] and dropped by
-	                          [Unmarshal]. Without the flag an embedded
-	                          field keeps the historical non-promoted
-	                          behavior. See [Unmarshal] for the full rules.
+	                          deeper promoted one; promoted fields tying at
+	                          equal depth resolve to a sole explicitly
+	                          tagged binding (json's tagged-beats-untagged
+	                          tiebreak), and an unresolved tie is rejected
+	                          by [Compile] and dropped by [Unmarshal].
+	                          Without the flag an embedded field is not
+	                          promoted. See [Unmarshal] for the full rules.
 
 The two "empty" forms differ, matching the convention in encoding/json,
 encoding/xml, and gopkg.in/yaml:

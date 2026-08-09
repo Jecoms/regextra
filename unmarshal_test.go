@@ -798,6 +798,28 @@ func ExampleUnmarshal_structTags() {
 	// Output: User: alice, Domain: example.com
 }
 
+func ExampleUnmarshal_inline() {
+	type RequestInfo struct {
+		Method string `regex:"method"`
+		Path   string `regex:"path"`
+	}
+	type LogLine struct {
+		RequestInfo `regex:",inline"` // promotes Method and Path
+		Status      int               `regex:"status"`
+	}
+
+	re := regexp.MustCompile(`(?P<method>\w+) (?P<path>\S+) -> (?P<status>\d+)`)
+	var line LogLine
+	err := rx.Unmarshal(re, "GET /health -> 200", &line)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("%s %s = %d\n", line.Method, line.Path, line.Status)
+	// Output: GET /health = 200
+}
+
 func TestUnmarshalAll(t *testing.T) {
 	t.Run("multiple matches", func(t *testing.T) {
 		type Person struct {
@@ -2447,6 +2469,32 @@ func TestUnmarshal_inlineEqualDepthDuplicateDropped(t *testing.T) {
 	}
 	if got.Path != "/idx" {
 		t.Errorf("Path = %q, want /idx", got.Path)
+	}
+}
+
+func TestUnmarshal_inlineEqualDepthTaggedBeatsUntagged(t *testing.T) {
+	// encoding/json's tiebreak on the lenient path: a sole explicitly tagged
+	// binding at equal depth wins; the field-name (fold) binding is dropped.
+	type ServerInfo struct {
+		Addr string `regex:"host"`
+	}
+	type Metadata struct {
+		Host string // untagged: fold-binds "host"
+	}
+	type Request struct {
+		ServerInfo `regex:",inline"`
+		Metadata   `regex:",inline"`
+	}
+	re := regexp.MustCompile(`(?P<host>\S+)`)
+	var got Request
+	if err := rx.Unmarshal(re, "example.com", &got); err != nil {
+		t.Fatalf("Unmarshal returned %v", err)
+	}
+	if got.Addr != "example.com" {
+		t.Errorf("tagged ServerInfo.Addr = %q, want example.com", got.Addr)
+	}
+	if got.Host != "" {
+		t.Errorf("untagged Metadata.Host = %q, want dropped (zero)", got.Host)
 	}
 }
 
