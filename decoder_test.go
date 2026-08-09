@@ -1,6 +1,7 @@
 package regextra_test
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"reflect"
@@ -625,6 +626,40 @@ func ExampleDecoder_Iter() {
 	// Output:
 	// Alice/30
 	// Bob/25
+}
+
+func ExampleDecoder_One_scanner() {
+	type Entry struct {
+		Level string `regex:"level"`
+		Msg   string `regex:"msg"`
+	}
+	dec := rx.MustCompile[Entry](`level=(?P<level>\w+) msg="(?P<msg>[^"]*)"`)
+
+	// Streaming decode from an io.Reader: Go's regexp has no streaming find,
+	// so scan the stream line by line and decode each line with Decoder.One.
+	// A file or network stream slots in wherever the strings.Reader is.
+	stream := strings.NewReader(`level=info msg="listening"
+-- not a log line --
+level=error msg="boom"
+`)
+	scanner := bufio.NewScanner(stream)
+	for scanner.Scan() {
+		e, err := dec.One(scanner.Text())
+		if errors.Is(err, rx.ErrNoMatch) {
+			continue // line has no match — skip it, not an error
+		}
+		if err != nil {
+			fmt.Println("decode:", err)
+			return
+		}
+		fmt.Printf("%s: %s\n", e.Level, e.Msg)
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("read:", err)
+	}
+	// Output:
+	// info: listening
+	// error: boom
 }
 
 func ExampleDecoder_Pattern() {
