@@ -33,11 +33,18 @@ When the next major ships, the same rule applies on the new major line; the late
 
 ## Scope
 
+### Scope of protection
+
+All matching in `regextra` goes through Go's standard library [`regexp`](https://pkg.go.dev/regexp) package, which implements [RE2 syntax](https://github.com/google/re2/wiki/Syntax) and is guaranteed to run in time linear in the size of the input — there is no backtracking engine.
+
+- **Hostile target input: safe.** Matching untrusted *target* text cannot trigger catastrophic backtracking (ReDoS); match time stays linear in the input regardless of the pattern.
+- **Hostile patterns: out of scope.** Pattern authors control compile and match cost — pattern size still drives memory and CPU, so "linear in the input" is not "immune to expensive patterns". Compiling patterns from untrusted input is the same trust decision as with stdlib `regexp` itself (see the out-of-scope list below).
+
 In scope:
 - Bugs in `regextra` source code that lead to incorrect behavior in security-relevant contexts (e.g. regex/input handling that allows untrusted input to escape its expected shape).
 - Build-time supply-chain issues with the package's own CI / release workflows.
 
 Out of scope:
-- Vulnerabilities in caller code that uses `regextra` insecurely (passing untrusted regex patterns from user input is generally a bad idea regardless of which package you use).
+- Vulnerabilities in caller code that uses `regextra` insecurely — in particular, compiling untrusted regex *patterns* from user input (see "Scope of protection" above).
 - Performance issues that aren't a denial-of-service risk.
 - Issues in Go's standard library `regexp` package — report those upstream to https://github.com/golang/go.
