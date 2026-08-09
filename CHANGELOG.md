@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`NamedGroupOccurrences(re *regexp.Regexp, target string) map[string][]string`** — the successor name for `AllNamedGroups`, with identical semantics: every value of every named capture group in the first match, keyed by group name, one slice element per occurrence of the name in the pattern (left-to-right), empty non-nil map on no match. The old name overloaded the "All" token — "all matches" in `FindAllNamed` but "all occurrences within one match" in `AllNamedGroups` — forcing both godoc and README into "Despite the 'All' prefix…" warnings; the new name states the per-occurrence axis directly and sits beside the `NamedGroups`/`NamedGroupsPerMatch`/`NamedGroupsPerMatchSeq` family, which already avoids "All" ([#118](https://github.com/Jecoms/regextra/issues/118)). Additive, non-breaking. ([#197](https://github.com/Jecoms/regextra/issues/197))
+
+### Deprecated
+
+- **`AllNamedGroups`** — now a thin delegating alias of `NamedGroupOccurrences` carrying a godoc `Deprecated:` marker (surfaced automatically by pkg.go.dev, gopls, and staticcheck SA1019). Behavior is byte-for-byte identical; per [README §Stability](./README.md#stability) a deprecation marker is an annotation, not a contract change. Removal is parked for a hypothetical v3 ([#206](https://github.com/Jecoms/regextra/issues/206)) — no urgency. ([#197](https://github.com/Jecoms/regextra/issues/197))
+
 ### Documentation
 
 - **README restructured as a front page; the package documentation on pkg.go.dev is now the canonical per-symbol reference.** The README's per-function reference section was removed in favor of a one-row-per-symbol API table linking pkg.go.dev anchors; README-only contract text (conversion precedence, `time.Time` layout fallbacks, `Iter` streaming guidance) was ported into godoc before deletion. ([#194](https://github.com/Jecoms/regextra/issues/194), [#208](https://github.com/Jecoms/regextra/pull/208))

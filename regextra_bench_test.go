@@ -213,7 +213,7 @@ func BenchmarkNamedGroups(b *testing.B) {
 	benchCase(b, "manyGroups", func() { sinkMap = rx.NamedGroups(bnNGManyRe, bnNGManyIn) }) // map-insertion scaling (20 groups)
 }
 
-// ── AllNamedGroups ────────────────────────────────────────────────────────────
+// ── NamedGroupOccurrences ─────────────────────────────────────────────────────
 //
 // Cost model: like NamedGroups, but values are []string, so each distinct group
 // costs an extra one-element slice allocation, and a repeated group name forces
@@ -229,12 +229,12 @@ var (
 	bnANGManyDupIn  = strings.Repeat("x ", 20)
 )
 
-func BenchmarkAllNamedGroups(b *testing.B) {
+func BenchmarkNamedGroupOccurrences(b *testing.B) {
 	// distinctGroups pairs with NamedGroups/twoGroups-style input to expose the slice-per-key tax.
-	benchCase(b, "distinctGroups", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGDistinctIn) })
-	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.AllNamedGroups(bnANGDupRe, bnANGDupIn) }) // 3 occurrences under one key
-	benchCase(b, "noMatch", func() { sinkMapSS = rx.AllNamedGroups(bnANGDistinctRe, bnANGNoMatch) })
-	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.AllNamedGroups(bnANGManyDupRe, bnANGManyDupIn) }) // 20 appends + regrowth under one key
+	benchCase(b, "distinctGroups", func() { sinkMapSS = rx.NamedGroupOccurrences(bnANGDistinctRe, bnANGDistinctIn) })
+	benchCase(b, "duplicateGroupName", func() { sinkMapSS = rx.NamedGroupOccurrences(bnANGDupRe, bnANGDupIn) }) // 3 occurrences under one key
+	benchCase(b, "noMatch", func() { sinkMapSS = rx.NamedGroupOccurrences(bnANGDistinctRe, bnANGNoMatch) })
+	benchCase(b, "manyDuplicates", func() { sinkMapSS = rx.NamedGroupOccurrences(bnANGManyDupRe, bnANGManyDupIn) }) // 20 appends + regrowth under one key
 }
 
 // ── NamedGroupsPerMatch ───────────────────────────────────────────────────────

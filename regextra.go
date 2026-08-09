@@ -41,7 +41,7 @@ By use case:
   - Pull one named group across all matches: [FindAllNamed]
   - Pull every named group from one match (map): [NamedGroups]
   - Pull every named group from one match, keeping every value when a group
-    name is reused inside the pattern (map of slices): [AllNamedGroups]
+    name is reused inside the pattern (map of slices): [NamedGroupOccurrences]
   - Pull every named group across all matches (one map per match):
     [NamedGroupsPerMatch], or lazily [NamedGroupsPerMatchSeq]
   - Substitute named-group spans by name: [Replace]
@@ -86,7 +86,8 @@ the no-match form that lets the caller continue without a special-case branch.
 	FindNamed                                 ("", false)
 	FindAllNamed                              []string{} (or nil if the group
 	                                          name is not declared on the regex)
-	NamedGroups, AllNamedGroups               empty map (initialized, not nil)
+	NamedGroups, NamedGroupOccurrences        empty map (initialized, not nil)
+	AllNamedGroups (deprecated alias)         same as NamedGroupOccurrences
 	NamedGroupsPerMatch                       []map[string]string{} (empty, not nil)
 	NamedGroupsPerMatchSeq                    iterator yields zero times
 	Replace                                   target returned unchanged
@@ -291,9 +292,7 @@ func FindNamed(re *regexp.Regexp, target, groupName string) (string, bool) {
 //
 // For a single match, prefer [FindNamed] which returns (value, ok).
 // To pull every named group from one match (with duplicate-name handling),
-// use [AllNamedGroups]. Despite the "All" prefix, AllNamedGroups operates on
-// a single match — it does not iterate matches across the target the way
-// FindAllNamed does.
+// use [NamedGroupOccurrences].
 //
 // When the pattern reuses a group name, each match contributes the value of
 // the occurrence that participated in that match, not blindly re.SubexpIndex's
@@ -344,9 +343,9 @@ func FindAllNamed(re *regexp.Regexp, target, groupName string) []string {
 // still present in the map, mapped to "".
 //
 // To see every occurrence rather than just the winning one, use
-// [AllNamedGroups] — but note it reports a non-participating occurrence and an
-// occurrence that matched an empty span identically (both as ""), so it cannot
-// be used to tell those two cases apart.
+// [NamedGroupOccurrences] — but note it reports a non-participating occurrence
+// and an occurrence that matched an empty span identically (both as ""), so it
+// cannot be used to tell those two cases apart.
 //
 // Example:
 //
@@ -480,16 +479,15 @@ func fillNamedGroupValues(dst map[string]string, names []string, target string, 
 	}
 }
 
-// AllNamedGroups operates on a single match and returns every value of every
-// named capture group, keyed by group name. Each value is a slice because Go's
-// regexp package allows the same group name to appear more than once in a
-// pattern; AllNamedGroups preserves every occurrence in left-to-right order.
+// NamedGroupOccurrences returns every value of every named capture group in
+// the first match, keyed by group name — one slice element per occurrence of
+// the name in the pattern. Each value is a slice because Go's regexp package
+// allows the same group name to appear more than once in a pattern;
+// NamedGroupOccurrences preserves every occurrence in left-to-right order.
 // Groups that appear once still get a one-element slice.
 //
-// The leading "All" refers to all named groups in one match — not to all
-// matches across the target. Internally the function inspects only the first
-// match, so only the first match contributes values. To collect every value of a
-// single named group across every match in the target, use [FindAllNamed]. To
+// Only the first match contributes values. To collect every value of a single
+// named group across every match in the target, use [FindAllNamed]. To
 // collect every named group across every match as one map per match, use
 // [NamedGroupsPerMatch] (or [NamedGroupsPerMatchSeq] for the lazy form); the
 // unmarshal path ([UnmarshalAll], [Decoder.All], [Decoder.Iter]) is the typed
@@ -501,15 +499,15 @@ func fillNamedGroupValues(dst map[string]string, names []string, target string, 
 // Example — duplicate group names (the use case this function exists for):
 //
 //	re := regexp.MustCompile(`(?P<word>\w+) (?P<word>\w+)`)
-//	allGroups := regextra.AllNamedGroups(re, "hello world")
-//	// allGroups = map[string][]string{"word": []string{"hello", "world"}}
+//	occurrences := regextra.NamedGroupOccurrences(re, "hello world")
+//	// occurrences = map[string][]string{"word": []string{"hello", "world"}}
 //
 // Example — distinct group names (each slice has one element):
 //
 //	re := regexp.MustCompile(`(?P<name>\w+) (?P<age>\d+)`)
-//	allGroups := regextra.AllNamedGroups(re, "Alice 30")
-//	// allGroups = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
-func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
+//	occurrences := regextra.NamedGroupOccurrences(re, "Alice 30")
+//	// occurrences = map[string][]string{"name": []string{"Alice"}, "age": []string{"30"}}
+func NamedGroupOccurrences(re *regexp.Regexp, target string) map[string][]string {
 	names := re.SubexpNames()
 	// No map size hint: len(names) counts slots, not distinct names, so it
 	// over-allocates when a pattern reuses one name across many occurrences.
@@ -537,6 +535,17 @@ func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
 	}
 
 	return result
+}
+
+// AllNamedGroups returns every value of every named capture group in the
+// first match, keyed by group name.
+//
+// Deprecated: Use [NamedGroupOccurrences] instead; identical behavior. The
+// name survives as an alias because its "All" prefix reads as "all matches"
+// when it actually means "all occurrences within one match"; removal is
+// parked for a hypothetical v3 (issue #206).
+func AllNamedGroups(re *regexp.Regexp, target string) map[string][]string {
+	return NamedGroupOccurrences(re, target)
 }
 
 // Replace substitutes the matched span of each named capture group in
