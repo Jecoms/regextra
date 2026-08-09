@@ -14,7 +14,7 @@ Thank you for your interest in contributing! This guide provides essential infor
 ## Development Setup
 
 ### Requirements
-- **Go 1.22 or later** (currently targeting Go 1.24)
+- **Go 1.24 or later**
 - golangci-lint for linting
 - Git for version control
 
@@ -74,7 +74,8 @@ cp CLAUDE.md.example CLAUDE.md
   next to its source and test). Route each `Test*`/`Benchmark*` to the sibling
   file of the source it exercises, by function-name prefix (`TestUnmarshal*`,
   `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
-  `decoder_*`; `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
+  `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*` → `encoder_*`;
+  `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
   `TestValidate*` → `regextra_*`).
 - **Do not add topical test files** (one per feature, bug fix, or issue). That
   habit is what fragmented the suite; a new test belongs in the existing
@@ -183,6 +184,9 @@ regextra/
 ├── decoder.go             # Compile/MustCompile + Decoder[T] (One/All/Iter)
 ├── decoder_test.go        # tests for decoder.go
 ├── decoder_bench_test.go  # benchmarks for decoder.go
+├── encoder.go             # Decoder.Encoder + Encoder[T] (pattern-inverting encode)
+├── encoder_test.go        # tests for encoder.go
+├── encoder_bench_test.go  # benchmarks for encoder.go
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)
 ├── bench_sanity_test.go   # asserts the shared benchmark fixtures stay representative
 ├── README.md              # Public API documentation
@@ -195,7 +199,7 @@ regextra/
 └── .github/
     └── workflows/
         ├── test.yml     # CI: tests, coverage, linting
-        └── release.yml  # CD: automated releases
+        └── auto-tag.yml # CD: automated releases
 ```
 
 ## Testing Guidelines
@@ -216,7 +220,7 @@ go test -bench=. -benchmem
 ```
 
 ### Test Coverage Expectations
-- Aim for coverage: >92% (enforced by the CI coverage gate in `.github/workflows/test.yml`)
+- Coverage: CI fails below 92% (gate in `.github/workflows/test.yml`); the suite's real baseline is ~97% — keep it there, don't target the floor
 - All public APIs must be tested
 - Critical error paths must be covered
 - Edge cases: nil pointers, empty inputs, no matches
@@ -239,8 +243,8 @@ go test -bench=. -benchmem
   (`Closes #NN` / `Fixes #NN`) in the description so it auto-closes on merge
 - **Update tests**: Include test coverage for changes
 - **Breaking changes**: A breaking change **cannot ship in a minor or patch
-  release** — it must be deferred to the next major version (`v2.0.0`) and
-  called out as breaking. `regextra` is at v1 and follows strict SemVer; see
+  release** — it must be deferred to the next major version (`v3.0.0`) and
+  called out as breaking. `regextra` is at v2 and follows strict SemVer; see
   [README §Stability](./README.md#stability) for the precise definition of what
   counts as breaking (and what doesn't). When a breaking change is in scope for
   the next major, mark the commit/PR title with `!` (see the [Commit Message
