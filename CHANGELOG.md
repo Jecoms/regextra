@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-09
+
 ### Added
 
 - **`(d *Decoder[T]).MustEncoder() *Encoder[T]` — panic-on-error encoder constructor for package-level vars.** Like `MustCompile` for `Compile`, `MustEncoder` wraps `Decoder.Encoder` and panics with its error unchanged, so the encoder can be built in a package-level `var` alongside the decoder and a non-invertible pattern fails at startup rather than at first use. The panic value is `Encoder()`'s wrapped error, so the `ErrNotInvertible` / `ErrInvalidStruct` sentinels stay reachable via `errors.Is` in a `recover()`. Additive, non-breaking. ([#196](https://github.com/Jecoms/regextra/issues/196))
