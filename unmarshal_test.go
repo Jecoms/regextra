@@ -1633,7 +1633,8 @@ func TestUnmarshal_dashWithOptionsIsNotExcluded(t *testing.T) {
 }
 
 // Issue #113: pin the two tag-grammar forward-compatibility rules that the
-// package doc (regextra.go "Tag grammar") declares part of the v1 contract,
+// package doc (regextra.go "Tag grammar") declares part of the
+// stability contract since v1,
 // exercised through the public Unmarshal/Decoder surface rather than the
 // unexported parser:
 //

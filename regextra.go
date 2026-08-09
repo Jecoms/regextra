@@ -170,7 +170,8 @@ Only the bare `-` tag excludes. A leading `-` followed by options
 (e.g. `regex:"-,default=x"`) parses `-` as the group name, which matches no
 group since regexp group names are Go identifiers.
 
-Two forward-compatibility rules in the tag parser are part of the v1 contract:
+Two forward-compatibility rules in the tag parser are part of the
+stability contract since v1:
 
   - Unknown key=value pairs are preserved, not rejected. The parser stores
     every key=value pair regardless of whether the key is currently
@@ -196,7 +197,7 @@ grammar) or a recognized flag token (claiming a previously-ignored slot).
 
 # Stability
 
-regextra is at v1 and follows strict SemVer. Patch releases are fixes only.
+regextra is at v2 and follows strict SemVer. Patch releases are fixes only.
 Minor releases add features without breaking changes. Breaking changes ship
 in the next major version, never in a minor or patch. See the README's
 Stability section for the precise contract, including what does and
