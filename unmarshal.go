@@ -572,18 +572,19 @@ func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect
 	// type's own RegexUnmarshaler or the pointee's converter, resolved here
 	// once per indirection level (`**Foo` recurses).
 	if t.Kind() == reflect.Ptr {
+		elemType := t.Elem() // constant per the exactly-type-t invariant; hoisted out of the closures
 		if t.Implements(regexUnmarshalerType) {
 			return func(field reflect.Value, value string) error {
 				if field.IsNil() {
-					field.Set(reflect.New(field.Type().Elem()))
+					field.Set(reflect.New(elemType))
 				}
 				return field.Interface().(RegexUnmarshaler).UnmarshalRegex(value)
 			}
 		}
-		elemConv := resolveConverter(t.Elem(), opts)
+		elemConv := resolveConverter(elemType, opts)
 		return func(field reflect.Value, value string) error {
 			if field.IsNil() {
-				field.Set(reflect.New(field.Type().Elem()))
+				field.Set(reflect.New(elemType))
 			}
 			return elemConv(field.Elem(), value)
 		}
@@ -637,7 +638,7 @@ func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect
 	if reflect.PointerTo(t).Implements(textUnmarshalerType) {
 		return func(field reflect.Value, value string) error {
 			if err := field.Addr().Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value)); err != nil {
-				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+				return fmt.Errorf("cannot convert %q to %s: %w", value, t, err)
 			}
 			return nil
 		}
@@ -657,7 +658,7 @@ func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect
 		return func(field reflect.Value, value string) error {
 			intVal, err := strconv.ParseInt(value, 10, bits)
 			if err != nil {
-				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+				return fmt.Errorf("cannot convert %q to %s: %w", value, t, err)
 			}
 			field.SetInt(intVal)
 			return nil
@@ -668,7 +669,7 @@ func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect
 		return func(field reflect.Value, value string) error {
 			uintVal, err := strconv.ParseUint(value, 10, bits)
 			if err != nil {
-				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+				return fmt.Errorf("cannot convert %q to %s: %w", value, t, err)
 			}
 			field.SetUint(uintVal)
 			return nil
@@ -679,7 +680,7 @@ func resolveConverter(t reflect.Type, opts map[string]string) func(field reflect
 		return func(field reflect.Value, value string) error {
 			floatVal, err := strconv.ParseFloat(value, bits)
 			if err != nil {
-				return fmt.Errorf("cannot convert %q to %s: %w", value, field.Type(), err)
+				return fmt.Errorf("cannot convert %q to %s: %w", value, t, err)
 			}
 			field.SetFloat(floatVal)
 			return nil

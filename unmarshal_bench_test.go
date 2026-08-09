@@ -265,12 +265,15 @@ var (
 //
 // Cost model per call: argument-validation guard (reflect.Kind checks),
 // FindStringSubmatchIndex, then a plan-cache lookup (getDecodePlan) and
-// runDecodePlan iterating the plan to call setFieldValue. buildDecodePlan
-// (parseFieldTag + group-index resolution per field) runs only on the first
-// use of a (pattern, struct type) pair, so steady-state iterations measure
-// cache hits, never plan builds. setFieldValue dispatches: pointer →
-// RegexUnmarshaler (addr / value-receiver) → time.Time / time.Duration →
-// kind switch (string/int/uint/float/bool) → unsupported-type error.
+// runDecodePlan iterating the plan — one indirect call per field through the
+// converter resolved at plan-build time (fieldDecoder.conv). The type
+// dispatch (pointer → RegexUnmarshaler → time.Time/time.Duration →
+// TextUnmarshaler → kind switch → unsupported-type error) runs once inside
+// buildDecodePlan via resolveConverter, not per decode; only interface-typed
+// fields still take the dynamic setFieldValue path per call. buildDecodePlan
+// (parseFieldTag + group-index resolution + converter resolution per field)
+// runs only on the first use of a (pattern, struct type) pair, so
+// steady-state iterations measure cache hits, never plan builds.
 
 func BenchmarkUnmarshal(b *testing.B) {
 	// representative — the common shapes.

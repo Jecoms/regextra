@@ -549,6 +549,48 @@ func TestUnmarshalPointerFields(t *testing.T) {
 	})
 }
 
+// Deeper pointer shapes: multi-level indirection and tag options resolved
+// through the indirection. Split from TestUnmarshalPointerFields to keep each
+// function under the gocyclo budget.
+func TestUnmarshalPointerFieldsNested(t *testing.T) {
+	t.Run("**RegexUnmarshaler allocates each level then dispatches", func(t *testing.T) {
+		// Two levels of indirection: **status itself has no methods, so the
+		// converter must recurse per level — allocate the outer pointer, then
+		// dispatch on *status's own UnmarshalRegex.
+		type Holder struct {
+			S **status `regex:"s"`
+		}
+		re := regexp.MustCompile(`\[(?P<s>\w+)\]`)
+		var h Holder
+		if err := rx.Unmarshal(re, "[open]", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.S == nil || *h.S == nil {
+			t.Fatal("pointer chain not fully allocated")
+		}
+		if **h.S != statusOpen {
+			t.Errorf("**S = %v, want statusOpen", **h.S)
+		}
+	})
+
+	t.Run("*time.Time honors layout= through the pointer", func(t *testing.T) {
+		type Holder struct {
+			TS *time.Time `regex:"ts,layout=02/01/2006"`
+		}
+		re := regexp.MustCompile(`(?P<ts>\S+)`)
+		var h Holder
+		if err := rx.Unmarshal(re, "26/04/2026", &h); err != nil {
+			t.Fatalf("Unmarshal returned %v", err)
+		}
+		if h.TS == nil {
+			t.Fatal("TS is nil; pointer was not allocated")
+		}
+		if h.TS.Year() != 2026 || h.TS.Month() != time.April || h.TS.Day() != 26 {
+			t.Errorf("*TS = %v, want 2026-04-26", *h.TS)
+		}
+	})
+}
+
 func ExampleUnmarshal_pointerFields() {
 	type Result struct {
 		Name *string `regex:"name"`
@@ -2220,6 +2262,37 @@ func TestUnmarshal_unsupportedFieldType(t *testing.T) {
 	}
 	if !strings.Contains(de.Unwrap().Error(), "unsupported field type") {
 		t.Errorf("underlying error %q, want it to mention %q", de.Unwrap(), "unsupported field type")
+	}
+}
+
+// A plain `any` field is unsupported even when it holds a concrete value
+// whose type implements RegexUnmarshaler: dynamic dispatch applies only to
+// fields whose STATIC interface type implements RegexUnmarshaler or
+// encoding.TextUnmarshaler (`F rx.RegexUnmarshaler`, tested above). `any`
+// implements neither, so the converter's dynamic path falls through to the
+// "unsupported field type: interface" arm — same as before per-field
+// converters were compiled into the plan.
+func TestUnmarshal_plainAnyFieldUnsupported(t *testing.T) {
+	type Holder struct {
+		F any `regex:"f"`
+	}
+	re := regexp.MustCompile(`(?P<f>\w+)`)
+	s := new(status)
+	h := Holder{F: s}
+	err := rx.Unmarshal(re, "open", &h)
+	if err == nil {
+		t.Fatal("expected an error for an `any` field, got nil")
+	}
+	var de *rx.DecodeError
+	if !errors.As(err, &de) {
+		t.Fatalf("error %q is not a *DecodeError", err)
+	}
+	if !strings.Contains(de.Unwrap().Error(), "unsupported field type: interface") {
+		t.Errorf("underlying error %q, want it to mention %q",
+			de.Unwrap(), "unsupported field type: interface")
+	}
+	if *s != 0 {
+		t.Errorf("UnmarshalRegex ran on the dynamic value (*s = %d); static-type dispatch contract broken", *s)
 	}
 }
 

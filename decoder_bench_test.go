@@ -18,7 +18,9 @@ var (
 // ── Compile / MustCompile ─────────────────────────────────────────────────────
 //
 // Cost model: regexp.Compile plus a reflect plan build — per exported field:
-// parseFieldTag, SubexpIndex, an eager default= probe via setFieldValue, and
+// parseFieldTag, SubexpIndex, converter resolution (resolveConverter hoists
+// the per-decode type dispatch to plan build; closures that capture state
+// allocate here), an eager default= probe via the resolved converter, and
 // layout= validation. For simple patterns regexp.Compile DOMINATES and hides
 // the per-field work, so two isolation harnesses accompany the headline cases:
 //   - regexpCompileBaseline: stdlib regexp.Compile of the SAME pattern; the
