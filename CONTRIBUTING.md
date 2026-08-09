@@ -187,7 +187,7 @@ regextra/
 ├── decoder.go             # Compile/MustCompile + Decoder[T] (One/All/Iter)
 ├── decoder_test.go        # tests for decoder.go
 ├── decoder_bench_test.go  # benchmarks for decoder.go
-├── encoder.go             # Decoder.Encoder + Encoder[T] (pattern-inverting encode)
+├── encoder.go             # Decoder.Encoder/MustEncoder + Encoder[T] (pattern-inverting encode)
 ├── encoder_test.go        # tests for encoder.go
 ├── encoder_bench_test.go  # benchmarks for encoder.go
 ├── bench_internal_test.go # package-internal benchmark (touches unexported code)

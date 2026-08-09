@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`(d *Decoder[T]).MustEncoder() *Encoder[T]` — panic-on-error encoder constructor for package-level vars.** Like `MustCompile` for `Compile`, `MustEncoder` wraps `Decoder.Encoder` and panics with its error unchanged, so the encoder can be built in a package-level `var` alongside the decoder and a non-invertible pattern fails at startup rather than at first use. The panic value is `Encoder()`'s wrapped error, so the `ErrNotInvertible` / `ErrInvalidStruct` sentinels stay reachable via `errors.Is` in a `recover()`. Additive, non-breaking. ([#196](https://github.com/Jecoms/regextra/issues/196))
 - **`NamedGroupOccurrences(re *regexp.Regexp, target string) map[string][]string`** — the successor name for `AllNamedGroups`, with identical semantics: every value of every named capture group in the first match, keyed by group name, one slice element per occurrence of the name in the pattern (left-to-right), empty non-nil map on no match. The old name overloaded the "All" token — "all matches" in `FindAllNamed` but "all occurrences within one match" in `AllNamedGroups` — forcing both godoc and README into "Despite the 'All' prefix…" warnings; the new name states the per-occurrence axis directly and sits beside the `NamedGroups`/`NamedGroupsPerMatch`/`NamedGroupsPerMatchSeq` family, which already avoids "All" ([#118](https://github.com/Jecoms/regextra/issues/118)). Additive, non-breaking. ([#197](https://github.com/Jecoms/regextra/issues/197))
 
 ### Deprecated

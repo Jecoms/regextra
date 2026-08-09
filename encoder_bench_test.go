@@ -7,16 +7,6 @@ import (
 	rx "github.com/jecoms/regextra/v2"
 )
 
-// mustDeriveEncoder derives an Encoder from a compiled Decoder or panics —
-// package-level construction for the benchmark fixtures.
-func mustDeriveEncoder[T any](d *rx.Decoder[T]) *rx.Encoder[T] {
-	e, err := d.Encoder()
-	if err != nil {
-		panic(err)
-	}
-	return e
-}
-
 // ── Decoder.Encoder ────────────────────────────────────────────────────────────
 //
 // Cost model: a one-time AST parse of the decoder's pattern plus, per named
@@ -34,6 +24,8 @@ var (
 func BenchmarkDeriveEncoder(b *testing.B) {
 	benchCase(b, "simpleStruct", func() { e, err := benchEncSimpleDecoder.Encoder(); sinkAny, sinkErr = e, err })
 	benchCase(b, "wideStruct", func() { e, err := benchEncWideDecoder.Encoder(); sinkAny, sinkErr = e, err })
+	// symbol coverage — MustEncoder's not-taken panic over Encoder.
+	benchCase(b, "mustEncoder", func() { sinkAny = benchEncSimpleDecoder.MustEncoder() })
 }
 
 // ── Encoder.Encode ─────────────────────────────────────────────────────────────
@@ -46,9 +38,9 @@ func BenchmarkDeriveEncoder(b *testing.B) {
 // direction).
 
 var (
-	benchEncSimpleEncoder = mustDeriveEncoder(benchEncSimpleDecoder)
-	benchEncTimeEncoder   = mustDeriveEncoder(benchEncTimeDecoder)
-	benchEncWideEncoder   = mustDeriveEncoder(benchEncWideDecoder)
+	benchEncSimpleEncoder = benchEncSimpleDecoder.MustEncoder()
+	benchEncTimeEncoder   = benchEncTimeDecoder.MustEncoder()
+	benchEncWideEncoder   = benchEncWideDecoder.MustEncoder()
 )
 
 // benchEncWidePattern is the invertible decode pattern the wide encoder derives

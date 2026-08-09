@@ -206,7 +206,8 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 //   - a mapped field's type cannot be encoded (see [Encoder] for the supported
 //     set)
 //
-// The latter two wrap [ErrInvalidStruct], mirroring [Compile]. Once Encoder
+// The latter two wrap [ErrInvalidStruct], mirroring [Compile].
+// [Decoder.MustEncoder] panics with the same wrapped error. Once Encoder
 // returns nil, the resulting Encoder is fully validated: the only errors
 // [Encoder.Encode] can then surface are runtime value failures (a custom
 // marshaler returning an error, or a nil pointer or nil interface field).
@@ -234,6 +235,20 @@ func (d *Decoder[T]) Encoder() (*Encoder[T], error) {
 		rtype:    rt,
 		segments: sb.segments,
 	}, nil
+}
+
+// MustEncoder is like [Decoder.Encoder] but panics on error. Intended for
+// package-level vars where startup-time failure is the right behavior,
+// mirroring [MustCompile]:
+//
+//	var personDecoder = regextra.MustCompile[Person](`(?P<name>\w+) is (?P<age>\d+)`)
+//	var personEncoder = personDecoder.MustEncoder()
+func (d *Decoder[T]) MustEncoder() *Encoder[T] {
+	e, err := d.Encoder()
+	if err != nil {
+		panic(err)
+	}
+	return e
 }
 
 // encodeSegmentBuilder accumulates the derived encode plan, coalescing adjacent
