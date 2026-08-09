@@ -76,7 +76,8 @@ cp CLAUDE.md.example CLAUDE.md
   `BenchmarkUnmarshal*` → `unmarshal_*`; `TestCompile*`/`TestDecoder*` →
   `decoder_*`; `TestEncode*`/`TestEncoder*`/`BenchmarkEncode*`/
   `BenchmarkDeriveEncoder*` → `encoder_*`;
-  `TestNamedGroups*`/`TestFindNamed*`/`TestReplace*`/
+  `TestNamedGroups*`/`TestNamedGroupOccurrences*`/`TestAllNamedGroups*`/
+  `BenchmarkNamedGroupOccurrences*`/`TestFindNamed*`/`TestReplace*`/
   `TestValidate*` → `regextra_*`).
 - **Do not add topical test files** (one per feature, bug fix, or issue). That
   habit is what fragmented the suite; a new test belongs in the existing

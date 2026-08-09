@@ -90,10 +90,10 @@ func checkNamedGroupsFixtures(t *testing.T) {
 	if m := rx.NamedGroups(bnNGManyRe, bnNGManyIn); len(m) != 20 {
 		t.Errorf("NamedGroups manyGroups size = %d, want 20", len(m))
 	}
-	if m := rx.NamedGroupOccurrences(bnANGDupRe, bnANGDupIn); len(m["word"]) != 3 {
+	if m := rx.NamedGroupOccurrences(bnNGODupRe, bnNGODupIn); len(m["word"]) != 3 {
 		t.Errorf("NamedGroupOccurrences duplicateGroupName word count = %d, want 3", len(m["word"]))
 	}
-	if m := rx.NamedGroupOccurrences(bnANGManyDupRe, bnANGManyDupIn); len(m["w"]) != 20 {
+	if m := rx.NamedGroupOccurrences(bnNGOManyDupRe, bnNGOManyDupIn); len(m["w"]) != 20 {
 		t.Errorf("NamedGroupOccurrences manyDuplicates w count = %d, want 20", len(m["w"]))
 	}
 }
